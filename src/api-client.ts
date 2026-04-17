@@ -76,7 +76,10 @@ export class ApiClient {
     return {
       Authorization: `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": "zpl-engine-cli/0.1.1",
+      // Cloudflare Bot Fight Mode 403s any non-Mozilla UA. Keep this in
+      // lockstep with device-flow.ts USER_AGENT and mcp/src/setup.ts.
+      "User-Agent":
+        "Mozilla/5.0 (compatible; zpl-engine-cli/0.1.2; +https://github.com/cicicalex/zpl-engine-cli)",
     };
   }
 

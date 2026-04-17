@@ -19,6 +19,15 @@ export const DEFAULT_SITE = process.env.ZPL_SITE ?? "https://zeropointlogic.io";
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_MAX_INTERVAL_MS = 10_000;
 
+// Cloudflare Bot Fight Mode on zeropointlogic.io silently 403s any
+// User-Agent that doesn't start with "Mozilla/". Node's default fetch UA
+// ("node") and any plain `zpl-engine-cli/<ver>` UA hit the challenge page,
+// which breaks `zpl login` before the device flow can start. Prefix
+// Mozilla/5.0 + (compatible; <our tool>) — the same convention bingbot and
+// slackbot use — clears the challenge while staying identifiable in logs.
+// Keep this in lockstep with mcp/src/setup.ts USER_AGENT.
+const USER_AGENT = "Mozilla/5.0 (compatible; zpl-engine-cli/0.1.2; +https://github.com/cicicalex/zpl-engine-cli)";
+
 export interface StartResponse {
   device_code: string;
   user_code: string;
@@ -73,7 +82,7 @@ export function openInBrowser(url: string): void {
 export async function startDeviceFlow(site: string, deviceName: string): Promise<StartResponse> {
   const res = await fetch(`${site}/api/auth/cli/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "zpl-engine-cli/0.1.1" },
+    headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
     body: JSON.stringify({ client: "cli", device_name: deviceName }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -98,7 +107,7 @@ export async function startDeviceFlow(site: string, deviceName: string): Promise
 async function pollOnce(site: string, deviceCode: string): Promise<StatusResponse> {
   const url = `${site}/api/auth/cli/status?device_code=${encodeURIComponent(deviceCode)}`;
   const res = await fetch(url, {
-    headers: { "User-Agent": "zpl-engine-cli/0.1.1" },
+    headers: { "User-Agent": USER_AGENT },
     signal: AbortSignal.timeout(10_000),
   });
   // 429 = we polled too fast. Sleep one cycle and try again.
