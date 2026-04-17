@@ -3,7 +3,7 @@
  *
  * We hand-roll a tiny TOML writer/reader instead of pulling @iarna/toml because
  * the schema is trivial (string scalars under three flat tables) and every
- * extra dep is extra surface area for `npx zpl-cli login`.
+ * extra dep is extra surface area for `npx zpl-engine-cli login`.
  */
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
@@ -54,7 +54,7 @@ export function writeConfig(cfg: ZplConfig): void {
   ensureConfigDir();
   const path = getConfigPath();
   const body =
-    `# zpl-cli config. mode 600. Do not share.\n` +
+    `# zpl-engine-cli config. mode 600. Do not share.\n` +
     `\n` +
     `[auth]\n` +
     `api_key = ${tomlString(cfg.auth.api_key)}\n` +

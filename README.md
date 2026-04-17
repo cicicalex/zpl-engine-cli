@@ -1,4 +1,4 @@
-# zpl-cli
+# zpl-engine-cli
 
 Terminal CLI for the [ZPL Engine](https://zeropointlogic.io) — score AI output for sycophancy, bias, and consistency from the command line.
 
@@ -7,9 +7,9 @@ Sister package to [`zpl-engine-mcp`](https://www.npmjs.com/package/zpl-engine-mc
 ## Install
 
 ```bash
-npm install -g zpl-cli
+npm install -g zpl-engine-cli
 # or
-npx zpl-cli login
+npx zpl-engine-cli login
 ```
 
 Node 18+ required.

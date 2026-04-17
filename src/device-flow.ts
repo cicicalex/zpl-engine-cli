@@ -73,7 +73,7 @@ export function openInBrowser(url: string): void {
 export async function startDeviceFlow(site: string, deviceName: string): Promise<StartResponse> {
   const res = await fetch(`${site}/api/auth/cli/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "zpl-cli/0.1.0" },
+    headers: { "Content-Type": "application/json", "User-Agent": "zpl-engine-cli/0.1.0" },
     body: JSON.stringify({ client: "cli", device_name: deviceName }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -98,7 +98,7 @@ export async function startDeviceFlow(site: string, deviceName: string): Promise
 async function pollOnce(site: string, deviceCode: string): Promise<StatusResponse> {
   const url = `${site}/api/auth/cli/status?device_code=${encodeURIComponent(deviceCode)}`;
   const res = await fetch(url, {
-    headers: { "User-Agent": "zpl-cli/0.1.0" },
+    headers: { "User-Agent": "zpl-engine-cli/0.1.0" },
     signal: AbortSignal.timeout(10_000),
   });
   // 429 = we polled too fast. Sleep one cycle and try again.

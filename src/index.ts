@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * zpl-cli entry point. Commander sets up the nine commands spec'd in
- * docs/superpowers/specs/2026-04-17-zpl-cli-mcp-device-flow-design.md §5.
+ * zpl-engine-cli entry point. Commander sets up the nine commands spec'd in
+ * docs/superpowers/specs/2026-04-17-zpl-engine-cli-device-flow-design.md §5.
  *
  * Errors bubble up here where we translate API client exceptions into a
  * single-line red message on stderr + exit code 1. Stack traces are only
