@@ -6,3 +6,6 @@ dist/
 .zpl/
 .DS_Store
 *.tsbuildinfo
+
+# Local agent-generated notes (never commit)
+CLI_PUBLISH_NOW.md
