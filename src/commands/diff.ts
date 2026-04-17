@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import chalk from "chalk";
+import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
@@ -32,7 +32,7 @@ export async function cmdDiff(before: string, after: string): Promise<void> {
 
   // Threshold: anything <= 2 AIN points is noise; we treat as unchanged.
   let label: string;
-  let color: (s: string) => string;
+  let color: ChalkInstance;
   if (delta > 2) {
     label = "improved";
     color = chalk.green;

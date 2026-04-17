@@ -39,12 +39,12 @@ zpl watch
 | `zpl consistency "<question>" --n 5` | Run N passes, report variance |
 | `zpl compare <a.txt> <b.txt>` | Score two files and show the delta |
 | `zpl diff <before.txt> <after.txt>` | "improved / worsened / unchanged" |
-| `zpl history` | Last 20 runs from the local SQLite log |
+| `zpl history` | Last 20 runs from the local history log |
 
 ## Config
 
 - `~/.zpl/config.toml` — API key, user email, engine URL. Mode 0600 on POSIX.
-- `~/.zpl/history.db` — SQLite log of every scored run.
+- `~/.zpl/history.json` — JSON log of every scored run (capped at 500 entries, no native deps).
 
 ## Links
 

@@ -31,10 +31,6 @@ export function getConfigPath(): string {
   return join(getConfigDir(), "config.toml");
 }
 
-export function getHistoryDbPath(): string {
-  return join(getConfigDir(), "history.db");
-}
-
 export function ensureConfigDir(): void {
   const dir = getConfigDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });

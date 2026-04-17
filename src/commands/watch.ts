@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk, { type ChalkInstance } from "chalk";
 import clipboard from "clipboardy";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
@@ -7,7 +7,7 @@ import { appendHistory } from "../db.js";
 
 const POLL_MS = 2000;
 
-function statusColor(ain: number): (s: string) => string {
+function statusColor(ain: number): ChalkInstance {
   if (ain >= 60) return chalk.green;
   if (ain >= 40) return chalk.yellow;
   return chalk.red;

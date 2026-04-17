@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import chalk from "chalk";
+import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
@@ -19,7 +19,7 @@ function verdictFor(ain: number): string {
   return "heavily biased";
 }
 
-function statusColor(ain: number): (s: string) => string {
+function statusColor(ain: number): ChalkInstance {
   if (ain >= 60) return chalk.green;
   if (ain >= 40) return chalk.yellow;
   return chalk.red;
