@@ -1,0 +1,58 @@
+{
+  "name": "zpl-cli",
+  "version": "0.1.0",
+  "description": "Terminal CLI for ZPL Engine — score AI output for sycophancy, bias, and consistency from the command line.",
+  "author": "Alex Cicic <contact@zeropointlogic.io>",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "zpl": "dist/index.js",
+    "zpl-cli": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "node --import tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "zpl",
+    "cli",
+    "ai",
+    "bias",
+    "sycophancy",
+    "llm",
+    "neutrality",
+    "ain"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://zeropointlogic.io/cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cicicalex/zpl-cli.git"
+  },
+  "bugs": {
+    "url": "https://zeropointlogic.io/support"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.5",
+    "clipboardy": "^4.0.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
