@@ -76,7 +76,7 @@ export class ApiClient {
     return {
       Authorization: `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": "zpl-engine-cli/0.1.0",
+      "User-Agent": "zpl-engine-cli/0.1.1",
     };
   }
 

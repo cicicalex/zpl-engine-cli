@@ -20,7 +20,7 @@ import { cmdCompare } from "./commands/compare.js";
 import { cmdDiff } from "./commands/diff.js";
 import { cmdHistory } from "./commands/history.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 function dieFormatted(err: unknown, verbose: boolean): never {
   if (err instanceof ApiAuthError) {
