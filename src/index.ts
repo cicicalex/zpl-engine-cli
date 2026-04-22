@@ -19,8 +19,9 @@ import { cmdConsistency } from "./commands/consistency.js";
 import { cmdCompare } from "./commands/compare.js";
 import { cmdDiff } from "./commands/diff.js";
 import { cmdHistory } from "./commands/history.js";
+import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 function dieFormatted(err: unknown, verbose: boolean): never {
   if (err instanceof ApiAuthError) {
@@ -150,13 +151,27 @@ program
     }
   });
 
-// No args → show help + onboarding hint.
-if (process.argv.length <= 2) {
-  program.outputHelp();
-  process.stdout.write(
-    "\n" + chalk.gray("Tip: run ") + chalk.cyan("`zpl login`") + chalk.gray(" to get started.\n"),
-  );
-  process.exit(0);
-}
+// Main async flow: run the version check first, then commander.
+// The version check is best-effort (non-blocking on network failure) but
+// forces upgrade on major version mismatch — same policy as the MCP.
+(async () => {
+  const upgradeCheck = await checkLatestVersion(VERSION);
+  if (upgradeCheck === "block") {
+    process.exit(1);
+  }
 
-program.parseAsync(process.argv).catch((err) => dieFormatted(err, Boolean(program.opts().verbose)));
+  // No args → show help + onboarding hint.
+  if (process.argv.length <= 2) {
+    program.outputHelp();
+    process.stdout.write(
+      "\n" + chalk.gray("Tip: run ") + chalk.cyan("`zpl login`") + chalk.gray(" to get started.\n"),
+    );
+    process.exit(0);
+  }
+
+  try {
+    await program.parseAsync(process.argv);
+  } catch (err) {
+    dieFormatted(err, Boolean(program.opts().verbose));
+  }
+})();
