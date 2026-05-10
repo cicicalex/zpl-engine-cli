@@ -1,7 +1,7 @@
 {
   "name": "zpl-engine-cli",
-  "version": "1.0.0",
-  "description": "Terminal CLI for ZPL Engine — independent verification layer for AI output. Score files, clipboard, or stdin for bias / sycophancy / consistency. v1.0 ships memory-aware login, diagnose + repair, `zpl pipe` (Unix-style stdin scoring with --threshold for CI gates), `zpl about` (agent-discoverable manifest), Cloudflare detection, and 14 regression-locked bug fixes.",
+  "version": "1.1.0",
+  "description": "Terminal CLI for ZPL Engine — independent verification layer for AI output. Score files, clipboard, or stdin for bias / sycophancy / consistency. v1.1 adds shell completion (bash/zsh/fish/PowerShell), HTTP_PROXY support, `zpl config` get/set/list/unset/edit, `zpl logs` audit log, on top of v1.0's memory-aware login, diagnose, repair, pipe (CI gate), about, and 20 regression-locked bug + security fixes.",
   "author": "Alex Cicic <contact@zeropointlogic.io>",
   "license": "MIT",
   "type": "module",
@@ -47,7 +47,8 @@
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.5",
     "clipboardy": "^4.0.0",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "undici": "^7.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

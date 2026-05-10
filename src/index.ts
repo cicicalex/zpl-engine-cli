@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+// Install proxy dispatcher BEFORE any module that uses fetch — undici reads
+// HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars at this call. If we install later,
+// the first fetch (e.g. update-check.ts) would already be issued direct.
+import { installProxyDispatcher } from "./proxy.js";
+installProxyDispatcher();
+
 /**
  * zpl-engine-cli entry point.
  *
@@ -44,9 +50,18 @@ import { cmdQuota } from "./commands/quota.js";
 import { cmdPlans } from "./commands/plans.js";
 import { cmdExport } from "./commands/export.js";
 import { cmdUpdate } from "./commands/update.js";
+import { cmdCompletion } from "./commands/completion.js";
+import {
+  cmdConfigGet,
+  cmdConfigSet,
+  cmdConfigUnset,
+  cmdConfigList,
+  cmdConfigEdit,
+} from "./commands/config.js";
+import { cmdLogs, type LogTypeFilter } from "./commands/logs.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /**
  * Sanitise an arbitrary string before showing it to the user / writing to
@@ -305,6 +320,95 @@ program
       await cmdUpdate({
         apply: Boolean(opts.apply),
         output: opts.output as "text" | "json" | undefined,
+      });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("completion <shell>")
+  .description("Print a tab-completion script for bash | zsh | fish | powershell")
+  .action(async (shell: string) => {
+    try {
+      await cmdCompletion(shell);
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+const configCmd = program
+  .command("config")
+  .description("Get/set/list config values in ~/.zpl/config.toml");
+
+configCmd
+  .command("get <key>")
+  .description("Print one value (e.g. `zpl config get engine.base_url`)")
+  .action(async (key: string) => {
+    try {
+      await cmdConfigGet(key);
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+configCmd
+  .command("set <key> <value>")
+  .description("Set a value (engine URL is host-allowlist validated)")
+  .action(async (key: string, value: string) => {
+    try {
+      await cmdConfigSet(key, value);
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+configCmd
+  .command("unset <key>")
+  .description("Revert a value to its built-in default")
+  .action(async (key: string) => {
+    try {
+      await cmdConfigUnset(key);
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+configCmd
+  .command("list")
+  .description("Show all config keys + values (api_key shown redacted)")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { output?: string }) => {
+    try {
+      await cmdConfigList({ output: opts.output as "text" | "json" | undefined });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+configCmd
+  .command("edit")
+  .description("Open ~/.zpl/config.toml in $EDITOR (or notepad on Windows)")
+  .action(async () => {
+    try {
+      await cmdConfigEdit();
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("logs")
+  .description("Show recent CLI activity from the local log (privacy: input is hashed)")
+  .option("-l, --limit <n>", "max entries to show (default 50, max 500)")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .option("-t, --type <filter>", "filter by event type: all | auth | scoring", "all")
+  .action(async (opts: { limit?: string; output?: string; type?: string }) => {
+    try {
+      await cmdLogs({
+        limit: opts.limit,
+        output: opts.output as "text" | "json" | undefined,
+        type: opts.type as LogTypeFilter | undefined,
       });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
