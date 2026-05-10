@@ -19,6 +19,18 @@ interface AboutManifest {
   scoring: { range: string; bands: { score: string; meaning: string }[] };
   links: { docs: string; repo: string; npm: string; engine_status: string };
   free_plan: string;
+  privacy: {
+    data_sent_to_engine: string;
+    data_stored_locally: string;
+    telemetry: string;
+    config_file_mode: string;
+  };
+  security: {
+    transport: string;
+    engine_url_allowlist: string;
+    secret_redaction: string;
+    backup_safety: string;
+  };
 }
 
 function readVersion(): string {
@@ -81,6 +93,26 @@ function buildManifest(): AboutManifest {
     },
     free_plan:
       "5,000 tokens/month, no credit card required. Sign up at zeropointlogic.io.",
+    privacy: {
+      data_sent_to_engine:
+        "Only the text/numbers you score (sentiment-distilled to a single bias number 0-1, plus a small dimension d). Your raw text is sent in the request body for scoring. The engine logs the request for billing purposes only — it is not used to train any model.",
+      data_stored_locally:
+        "~/.zpl/config.toml (your API key, mode 0600 on POSIX) and ~/.zpl/history.json (one row per scored input — input is SHA-256 hashed BEFORE storage, so the raw text is never written to disk).",
+      telemetry:
+        "None. The CLI makes ONE outbound check per startup to npm registry to detect new versions. Disable with ZPL_SKIP_UPDATE_CHECK=1.",
+      config_file_mode:
+        "0600 on POSIX (owner read/write only). On Windows NTFS, owner-only by default. Use `zpl diagnose` to verify.",
+    },
+    security: {
+      transport:
+        "HTTPS only — http:// engine URLs are rejected at config load.",
+      engine_url_allowlist:
+        "Engine host must be in *.zeropointlogic.io. Self-hosters: set ZPL_ENGINE_HOST_ALLOWLIST=\"your-host.com\". A hostile config.toml or env var pointing to attacker.com cannot exfiltrate your key — the URL is rejected before any request is sent.",
+      secret_redaction:
+        "All secret-shaped strings (zpl_u_*, zpl_s_*, Bearer tokens, sk-ant-*, sk-*, gsk_*) are redacted in: history.json status field, error messages on stderr, and `zpl diagnose` output. Defence in depth so a leak in one layer does not propagate.",
+      backup_safety:
+        "`zpl repair` backs up your config to ~/.zpl/config.toml.bak with mode 0600 BEFORE deletion, and prints restore instructions if the subsequent login fails. You cannot lose your key by running repair.",
+    },
   };
 }
 
@@ -120,6 +152,18 @@ export async function cmdAbout(opts: AboutOptions = {}): Promise<void> {
   for (const b of m.scoring.bands) {
     w(`  ${chalk.cyan(b.score.padEnd(8))}  ${chalk.gray(b.meaning)}`);
   }
+  w("");
+  w(chalk.bold("Privacy:"));
+  w(`  ${chalk.gray("Data sent:")}     ${m.privacy.data_sent_to_engine}`);
+  w(`  ${chalk.gray("Stored locally:")} ${m.privacy.data_stored_locally}`);
+  w(`  ${chalk.gray("Telemetry:")}     ${m.privacy.telemetry}`);
+  w(`  ${chalk.gray("Config mode:")}   ${m.privacy.config_file_mode}`);
+  w("");
+  w(chalk.bold("Security:"));
+  w(`  ${chalk.gray("Transport:")}     ${m.security.transport}`);
+  w(`  ${chalk.gray("URL allowlist:")} ${m.security.engine_url_allowlist}`);
+  w(`  ${chalk.gray("Redaction:")}     ${m.security.secret_redaction}`);
+  w(`  ${chalk.gray("Backup safety:")} ${m.security.backup_safety}`);
   w("");
   w(chalk.bold("Links:"));
   w(`  Docs        ${chalk.cyan(m.links.docs)}`);

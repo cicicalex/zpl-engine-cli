@@ -1,0 +1,109 @@
+/**
+ * Engine URL validation — defence against config-file or env-var hijack.
+ *
+ * Threat model:
+ *   - Attacker writes `~/.zpl/config.toml` with `engine.base_url = "http://evil.com"`
+ *   - Or sets `ZPL_ENGINE_URL=http://attacker:8080` in a CI shell
+ *   - User's API key gets POSTed (Authorization: Bearer ...) to attacker's
+ *     server → key stolen → quota burned, paid plans charged on attacker's
+ *     workload, possibly identity escalation.
+ *
+ * Defences enforced here:
+ *   1. Scheme MUST be https (rejects http://, file://, data:, etc.)
+ *   2. Host MUST be in ENGINE_HOST_ALLOWLIST. Defaults to *.zeropointlogic.io
+ *      so a typo in config.toml ("zeropointlogc.io") is caught.
+ *   3. No userinfo (no `https://user:pass@host/...`) — strips creds from URL.
+ *   4. No URL fragment / query — engine endpoints don't use them.
+ *
+ * Self-hosters can extend the allowlist via ZPL_ENGINE_HOST_ALLOWLIST
+ * (comma-separated). This is documented as an explicit opt-in in the README.
+ */
+
+const DEFAULT_ALLOWED_HOSTS = [
+  "engine.zeropointlogic.io",
+  // Staging + dev, useful during MCP/CLI release rehearsal.
+  "engine-staging.zeropointlogic.io",
+  "engine-dev.zeropointlogic.io",
+  // Localhost variants — only valid when ZPL_ALLOW_LOCALHOST=1 (see below).
+];
+
+const LOCALHOST_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+export class EngineUrlError extends Error {
+  constructor(reason: string, url: string) {
+    super(`Refusing to use engine URL "${url}": ${reason}`);
+    this.name = "EngineUrlError";
+  }
+}
+
+/** Read the optional ZPL_ENGINE_HOST_ALLOWLIST comma-separated env var. */
+function readEnvAllowlist(): string[] {
+  const raw = process.env.ZPL_ENGINE_HOST_ALLOWLIST?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function effectiveAllowlist(): string[] {
+  const list = [...DEFAULT_ALLOWED_HOSTS, ...readEnvAllowlist()];
+  // Localhost only allowed if user explicitly opts in. Useful for engine devs
+  // running a local instance, but never the default — a typo can't accidentally
+  // route traffic to localhost where another process might intercept it.
+  if (process.env.ZPL_ALLOW_LOCALHOST === "1") {
+    list.push(...LOCALHOST_HOSTS);
+  }
+  return list.map((h) => h.toLowerCase());
+}
+
+/**
+ * Validate + normalise an engine base URL. Throws EngineUrlError if the URL
+ * is not safe to send Bearer tokens to. Returns the cleaned URL (no trailing
+ * slash, no userinfo, no query, no fragment).
+ *
+ * Idempotent: calling twice on a clean URL returns the same string.
+ */
+export function validateEngineUrl(raw: string): string {
+  if (!raw || typeof raw !== "string") {
+    throw new EngineUrlError("URL is empty or not a string", String(raw));
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new EngineUrlError("not a parseable URL", raw);
+  }
+
+  if (url.protocol !== "https:") {
+    throw new EngineUrlError(
+      `scheme must be https, got "${url.protocol}". HTTP would expose the API key in plain text.`,
+      raw,
+    );
+  }
+
+  if (url.username || url.password) {
+    throw new EngineUrlError(
+      `URL must not contain userinfo (https://user:pass@host) — credentials in URLs end up in logs.`,
+      raw,
+    );
+  }
+
+  const host = url.hostname.toLowerCase();
+  const allowlist = effectiveAllowlist();
+  if (!allowlist.includes(host)) {
+    throw new EngineUrlError(
+      `host "${host}" is not in the allowlist (${allowlist.join(", ")}). ` +
+        `Self-hosters: set ZPL_ENGINE_HOST_ALLOWLIST="your-host.com" to add it.`,
+      raw,
+    );
+  }
+
+  // Build a clean URL: scheme + host[:port] + pathname (trim trailing /).
+  // No search, no hash, no userinfo.
+  const cleaned = `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+  return cleaned;
+}
+
+/** Defaults are always safe to use without going through validateEngineUrl. */
+export const DEFAULT_ENGINE_URL = "https://engine.zeropointlogic.io";

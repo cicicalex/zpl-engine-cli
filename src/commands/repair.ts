@@ -18,7 +18,8 @@
  * a clear restore command so they can roll back.
  */
 import { createInterface } from "node:readline/promises";
-import { copyFileSync, existsSync, renameSync } from "node:fs";
+import { copyFileSync, existsSync, renameSync, chmodSync } from "node:fs";
+import { platform } from "node:os";
 import chalk from "chalk";
 import { deleteConfig, getConfigPath, readConfig } from "../config.js";
 import { cmdLogin } from "./login.js";
@@ -73,10 +74,28 @@ export async function cmdRepair(opts: RepairOptions = {}): Promise<void> {
   }
 
   // ── Backup first so we can roll back if the device flow fails ──────
+  // SECURITY: copyFileSync defaults to mode 0o666 minus umask, which on most
+  // Linux distros leaves the backup world-readable. The backup contains the
+  // SAME api_key as the original — same threat profile, same protection
+  // required. Force 0o600 immediately after copy on POSIX.
   const bak = backupPath();
   try {
     copyFileSync(getConfigPath(), bak);
-    process.stdout.write(chalk.gray(`✓ Backed up to ${bak}\n`));
+    if (platform() !== "win32") {
+      try {
+        chmodSync(bak, 0o600);
+      } catch {
+        // Best-effort: if chmod fails on something exotic, the copy still
+        // happened. Warn the user so they know the backup permissions may
+        // be loose and they should `chmod 600` it themselves.
+        process.stderr.write(
+          chalk.yellow(
+            `⚠ Could not set 0600 permissions on ${bak} — please chmod manually.\n`,
+          ),
+        );
+      }
+    }
+    process.stdout.write(chalk.gray(`✓ Backed up to ${bak} (mode 0600)\n`));
   } catch (err) {
     // Backup failure is fatal — proceeding without one means a repair gone
     // wrong leaves the user with nothing.

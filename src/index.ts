@@ -48,25 +48,50 @@ import { checkLatestVersion } from "./update-check.js";
 
 const VERSION = "1.0.0";
 
+/**
+ * Sanitise an arbitrary string before showing it to the user / writing to
+ * stderr. Mirrors db.ts sanitiseStatus regex set so an engine error that
+ * accidentally echoes back the request body (with the Authorization header,
+ * or the raw key in a debug message) doesn't leak the secret to:
+ *   - the user's terminal scroll-back
+ *   - shell history (if they pipe stderr)
+ *   - CI logs (almost always world-readable in the org)
+ *
+ * Defence in depth: the engine should never put secrets in error bodies.
+ * If it ever does, this catches the leak before it hits the screen.
+ */
+function sanitiseErrorMessage(s: string): string {
+  return s
+    .replace(/zpl_[us]_(?:[a-z]+_)?[a-f0-9]{20,}/gi, "[REDACTED-ZPL-KEY]")
+    .replace(/Bearer\s+[A-Za-z0-9._\-+/=]{16,}/gi, "Bearer [REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]+/gi, "[REDACTED-SK-KEY]")
+    .replace(/gsk_[A-Za-z0-9_-]+/gi, "[REDACTED-GSK-KEY]");
+}
+
 function dieFormatted(err: unknown, verbose: boolean): never {
+  // Wrap each writer so secret-shaped strings inside any error message get
+  // redacted before they reach the terminal / shell history / CI logs.
+  const writeErr = (s: string) => process.stderr.write(sanitiseErrorMessage(s));
+
   if (err instanceof ApiAuthError) {
-    process.stderr.write(chalk.red(err.message) + "\n");
+    writeErr(chalk.red(err.message) + "\n");
   } else if (err instanceof ApiQuotaError) {
-    process.stderr.write(chalk.yellow(err.message) + "\n");
+    writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiCloudflareError) {
     // Yellow not red: the engine is fine, this is upstream WAF noise.
-    process.stderr.write(chalk.yellow(err.message) + "\n");
+    writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiNetworkError) {
-    process.stderr.write(chalk.red(err.message) + "\n");
+    writeErr(chalk.red(err.message) + "\n");
   } else if (err instanceof Error) {
-    if ((err as NodeJS.ErrnoException).code === "ENOCONFIG") {
-      process.stderr.write(chalk.red(err.message) + "\n");
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOCONFIG" || code === "EBADKEY") {
+      writeErr(chalk.red(err.message) + "\n");
     } else {
-      process.stderr.write(chalk.red(`Error: ${err.message}`) + "\n");
-      if (verbose && err.stack) process.stderr.write(chalk.gray(err.stack) + "\n");
+      writeErr(chalk.red(`Error: ${err.message}`) + "\n");
+      if (verbose && err.stack) writeErr(chalk.gray(err.stack) + "\n");
     }
   } else {
-    process.stderr.write(chalk.red("Unknown error.") + "\n");
+    writeErr(chalk.red("Unknown error.") + "\n");
   }
   process.exit(1);
 }

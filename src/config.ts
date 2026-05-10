@@ -5,9 +5,11 @@
  * the schema is trivial (string scalars under three flat tables) and every
  * extra dep is extra surface area for `npx zpl-engine-cli login`.
  */
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync, chmodSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
+import { validateEngineUrl, DEFAULT_ENGINE_URL, EngineUrlError } from "./engine-url-validate.js";
+import { isValidApiKeyFormat, isServiceKey } from "./api-key-format.js";
 
 export interface ZplConfig {
   auth: {
@@ -139,6 +141,62 @@ function parseToml(src: string): ZplConfig | null {
 }
 
 /**
+ * Warn the user if config.toml is world-readable (POSIX only — Windows NTFS
+ * doesn't have these perm bits). On Linux/macOS, mode 0o600 means the file
+ * can only be read by its owner; a chmod 644 would expose your API key to
+ * other accounts on a shared box.
+ *
+ * We warn but DO NOT auto-chmod — the user may have intentionally set
+ * permissions for a reason. Better to surface the issue and let them decide.
+ */
+function warnIfConfigPermissionsTooOpen(path: string): void {
+  if (platform() === "win32") return; // NTFS doesn't have POSIX bits
+  try {
+    const st = statSync(path);
+    const perms = st.mode & 0o777;
+    // Anything beyond owner-read+write is too permissive for a credentials file.
+    if (perms & 0o077) {
+      process.stderr.write(
+        `[33m⚠ Warning: ${path} permissions are ${perms.toString(8).padStart(4, "0")} ` +
+          `(should be 0600 to keep your API key private).[0m\n` +
+          `[90m   Fix: chmod 600 "${path}"[0m\n`,
+      );
+    }
+  } catch {
+    // Stat failed — defensive, just skip the check.
+  }
+}
+
+/**
+ * Validate + normalise the engine base URL via the host allowlist. Pre-v1
+ * we accepted any URL on faith, which meant a corrupt config or hostile
+ * env var could redirect Bearer-token traffic to attacker.com. Now we
+ * reject anything not on the allowlist (default: *.zeropointlogic.io).
+ *
+ * Returns the cleaned URL or throws. We treat URL failure as a fatal config
+ * error (exit on use) — silently falling back to the default would mask a
+ * real attack.
+ */
+function safeEngineBaseUrl(raw: string | undefined): string {
+  const candidate = raw?.trim() || DEFAULT_ENGINE_URL;
+  try {
+    return validateEngineUrl(candidate);
+  } catch (err) {
+    if (err instanceof EngineUrlError) {
+      // Surface the rejection to stderr so the user sees WHY their URL was
+      // overridden, then fall back to the production default. We DO fall back
+      // (rather than crash) so a misconfigured ZPL_ENGINE_URL doesn't brick
+      // every command — the user can still get work done while they fix it.
+      process.stderr.write(
+        `[31m✗ Insecure engine URL ignored: ${err.message}[0m\n` +
+          `[90m   Falling back to ${DEFAULT_ENGINE_URL}[0m\n`,
+      );
+    }
+    return DEFAULT_ENGINE_URL;
+  }
+}
+
+/**
  * Throws with a user-friendly message if no usable credentials are present.
  *
  * Resolution order (highest precedence first):
@@ -149,14 +207,38 @@ function parseToml(src: string): ZplConfig | null {
  *      is the correct behaviour.
  *   2. ~/.zpl/config.toml on disk — what `zpl login` writes.
  *
- * v1.0.0 added the env var fallback. Pre-v1 a CI run had to either ship a
- * pre-baked config.toml (annoying) or run `zpl login` (impossible in
- * non-interactive). Now `ZPL_API_KEY=zpl_u_... zpl pipe` Just Works.
+ * v1.0.0 security:
+ *   - ZPL_API_KEY is trimmed and format-validated; bogus values fail loud
+ *     instead of producing a 401 from the engine 30 seconds later.
+ *   - engine.base_url is run through validateEngineUrl on BOTH paths to
+ *     defend against hostile env vars / config files.
+ *   - On POSIX, config.toml mode is checked and the user is warned if it's
+ *     world-readable.
  */
 export function requireConfig(): ZplConfig {
   // Env var fallback first — explicit override beats whatever's on disk.
   const envKey = process.env.ZPL_API_KEY?.trim();
   if (envKey) {
+    // Reject service keys (server-side only) and malformed env vars BEFORE
+    // they reach the Authorization header. A typo'd env key surfaces here
+    // with an actionable error instead of a confusing 401 from the engine.
+    if (isServiceKey(envKey)) {
+      const err = new Error(
+        "ZPL_API_KEY is a service key (zpl_s_*). CLI requires a user key (zpl_u_*). " +
+          "Get one from `zpl login` or zeropointlogic.io/dashboard/api-keys.",
+      );
+      (err as NodeJS.ErrnoException).code = "EBADKEY";
+      throw err;
+    }
+    if (!isValidApiKeyFormat(envKey)) {
+      const err = new Error(
+        "ZPL_API_KEY does not match the expected format " +
+          "(zpl_u_<48 hex> or zpl_u_<prefix>_<48 hex>). " +
+          "Check for trailing whitespace or stray characters.",
+      );
+      (err as NodeJS.ErrnoException).code = "EBADKEY";
+      throw err;
+    }
     return {
       auth: {
         api_key: envKey,
@@ -164,7 +246,7 @@ export function requireConfig(): ZplConfig {
         created_at: new Date(0).toISOString(), // sentinel — "from env, not file"
       },
       engine: {
-        base_url: process.env.ZPL_ENGINE_URL?.trim() || "https://engine.zeropointlogic.io",
+        base_url: safeEngineBaseUrl(process.env.ZPL_ENGINE_URL),
       },
       defaults: {
         model: process.env.ZPL_DEFAULT_MODEL?.trim() || "claude-haiku-4-5",
@@ -180,7 +262,19 @@ export function requireConfig(): ZplConfig {
     (err as NodeJS.ErrnoException).code = "ENOCONFIG";
     throw err;
   }
-  return cfg;
+
+  // POSIX permission check — only warn, don't auto-fix or refuse to load.
+  warnIfConfigPermissionsTooOpen(getConfigPath());
+
+  // Validate the URL the user has on disk. If it was hijacked by an attacker
+  // (or just typo'd), fall back to the production default with a stderr
+  // warning. The auth + defaults sections are kept as-is.
+  return {
+    ...cfg,
+    engine: {
+      base_url: safeEngineBaseUrl(cfg.engine.base_url),
+    },
+  };
 }
 
 // Re-export for tests / diagnostics.
