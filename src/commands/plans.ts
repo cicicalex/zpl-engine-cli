@@ -8,6 +8,7 @@
  */
 import chalk from "chalk";
 import Table from "cli-table3";
+import { TABLE_STYLE } from "../table-style.js";
 
 interface Plan {
   name: string;
@@ -56,7 +57,7 @@ export async function cmdPlans(opts: PlansOptions = {}): Promise<void> {
 
   const table = new Table({
     head: [chalk.bold("Plan"), chalk.bold("Tokens/month"), chalk.bold("EUR/month"), chalk.bold("Notes")],
-    style: { head: [] },
+    style: TABLE_STYLE,
     colWidths: [12, 16, 12, 50],
     wordWrap: true,
   });

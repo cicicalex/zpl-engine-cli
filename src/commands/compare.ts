@@ -5,6 +5,7 @@ import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
+import { TABLE_STYLE } from "../table-style.js";
 
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
@@ -31,7 +32,7 @@ export async function cmdCompare(a: string, b: string): Promise<void> {
 
   const table = new Table({
     head: [chalk.bold("File"), chalk.bold("AIN"), chalk.bold("Status"), chalk.bold("Tokens")],
-    style: { head: [] },
+    style: TABLE_STYLE,
   });
   table.push(
     [a, String(sA.ain), sA.status, String(sA.tokens)],

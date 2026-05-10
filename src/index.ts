@@ -337,9 +337,45 @@ program
     return;
   }
 
+  // Tell commander to throw on unknown command / unknown option / missing
+  // required arg instead of writing "error: ..." to stderr and exiting 0.
+  // Pre-v1 `zpl nonexistent` and `zpl plans --bogus` BOTH exited 0,
+  // breaking POSIX convention and silently passing CI scripts that
+  // expect non-zero on usage errors. exitOverride lets us catch and
+  // exit 2 (EX_USAGE).
+  //
+  // commander's exitOverride() only affects the command it's called on,
+  // NOT child subcommands — so we walk the command tree after wiring all
+  // subcommands and apply exitOverride to each. Without this, a bogus
+  // option on a subcommand (e.g. `zpl plans --bogus`) writes to stderr
+  // and exits 0, which is exactly the bug we're fixing.
+  function applyExitOverrideRecursive(cmd: Command): void {
+    cmd.exitOverride();
+    for (const sub of cmd.commands) applyExitOverrideRecursive(sub);
+  }
+  applyExitOverrideRecursive(program);
+
   try {
     await program.parseAsync(process.argv);
   } catch (err) {
+    // Commander throws CommanderError for built-in cases (--help, --version,
+    // unknown command, etc.). For --help and --version it sets exitCode=0;
+    // for everything else 1. Honor whatever it set; just don't crash.
+    type CommanderErrorLike = { code?: string; exitCode?: number; message?: string };
+    const ce = err as CommanderErrorLike;
+    if (ce && typeof ce.code === "string" && ce.code.startsWith("commander.")) {
+      // Successful built-in (--help, --version): commander already wrote
+      // the relevant output to stdout and exitCode is set to 0.
+      if (ce.code === "commander.help" || ce.code === "commander.version" || ce.code === "commander.helpDisplayed") {
+        process.exitCode = 0;
+        return;
+      }
+      // Bad usage (unknown command, unknown option, missing arg): map to
+      // POSIX EX_USAGE (sysexits.h says 64; many CLIs use 2 instead).
+      // Stick with 2 — same as commander's default and most CLIs.
+      process.exitCode = ce.exitCode ?? 2;
+      return;
+    }
     dieFormatted(err, Boolean(program.opts().verbose));
   }
 })();

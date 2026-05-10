@@ -15,6 +15,7 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import { requireConfig } from "../config.js";
 import { ApiClient, ApiAuthError } from "../api-client.js";
+import { TABLE_STYLE } from "../table-style.js";
 
 export interface QuotaOptions {
   output?: "text" | "json";
@@ -93,7 +94,7 @@ export async function cmdQuota(opts: QuotaOptions = {}): Promise<void> {
 
   const table = new Table({
     head: [chalk.bold("Field"), chalk.bold("Value")],
-    style: { head: [] },
+    style: TABLE_STYLE,
   });
   table.push(
     ["Plan", chalk.bold(plan)],

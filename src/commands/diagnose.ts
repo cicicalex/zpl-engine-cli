@@ -20,6 +20,7 @@ import { readConfig, getConfigPath } from "../config.js";
 import { isValidApiKeyFormat, isServiceKey } from "../api-key-format.js";
 import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
 import { USER_AGENT } from "../user-agent.js";
+import { TABLE_STYLE } from "../table-style.js";
 
 type CheckStatus = "PASS" | "FAIL" | "WARN" | "SKIP";
 
@@ -186,7 +187,7 @@ export async function cmdDiagnose(): Promise<void> {
   // ── Render ───────────────────────────────────────────────────────────
   const table = new Table({
     head: [chalk.bold("Check"), chalk.bold(""), chalk.bold("Detail")],
-    style: { head: [] },
+    style: TABLE_STYLE,
     colWidths: [22, 4, 80],
     wordWrap: true,
   });
@@ -195,11 +196,15 @@ export async function cmdDiagnose(): Promise<void> {
   }
   process.stdout.write(table.toString() + "\n");
 
+  // POSIX convention: failure summary + hints go to STDERR so the user can
+  // pipe `zpl diagnose > diag.txt` to capture the table while still seeing
+  // the actionable advice in their terminal. Pre-v1 these went to stdout
+  // and disappeared with the redirection.
   const fails = results.filter((r) => r.status === "FAIL");
   if (fails.length > 0) {
-    process.stdout.write("\n" + chalk.red.bold(`${fails.length} check(s) failed.`) + "\n");
+    process.stderr.write("\n" + chalk.red.bold(`${fails.length} check(s) failed.`) + "\n");
     for (const f of fails) {
-      if (f.hint) process.stdout.write(chalk.yellow(`  → ${f.name}: ${f.hint}`) + "\n");
+      if (f.hint) process.stderr.write(chalk.yellow(`  → ${f.name}: ${f.hint}`) + "\n");
     }
     // process.exitCode (not process.exit): the engine reachability check
     // uses fetch+AbortSignal.timeout. On Windows, calling exit() while a
@@ -211,11 +216,13 @@ export async function cmdDiagnose(): Promise<void> {
 
   const warns = results.filter((r) => r.status === "WARN");
   if (warns.length > 0) {
-    process.stdout.write("\n" + chalk.yellow.bold(`${warns.length} warning(s).`) + "\n");
+    process.stderr.write("\n" + chalk.yellow.bold(`${warns.length} warning(s).`) + "\n");
     for (const w of warns) {
-      if (w.hint) process.stdout.write(chalk.gray(`  → ${w.name}: ${w.hint}`) + "\n");
+      if (w.hint) process.stderr.write(chalk.gray(`  → ${w.name}: ${w.hint}`) + "\n");
     }
   } else {
+    // Success summary stays on stdout — it's the "everything green" signal
+    // a script might key off.
     process.stdout.write("\n" + chalk.green.bold("All checks passed.") + "\n");
   }
 }

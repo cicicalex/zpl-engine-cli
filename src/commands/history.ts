@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import Table from "cli-table3";
 import { listHistory } from "../db.js";
+import { TABLE_STYLE } from "../table-style.js";
 
 export async function cmdHistory(): Promise<void> {
   const rows = listHistory(20);
@@ -18,7 +19,7 @@ export async function cmdHistory(): Promise<void> {
       chalk.bold("Status"),
       chalk.bold("Tokens"),
     ],
-    style: { head: [] },
+    style: TABLE_STYLE,
     colWidths: [5, 22, 12, 18, 7, 22, 8],
     wordWrap: true,
   });

@@ -2,6 +2,7 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
+import { TABLE_STYLE } from "../table-style.js";
 
 export interface WhoamiOptions {
   output?: "text" | "json";
@@ -61,7 +62,7 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
     return;
   }
 
-  const table = new Table({ head: [chalk.bold("Field"), chalk.bold("Value")], style: { head: [] } });
+  const table = new Table({ head: [chalk.bold("Field"), chalk.bold("Value")], style: TABLE_STYLE });
   table.push(
     ["Email", cfg.auth.user_email],
     ["Plan", plan],
