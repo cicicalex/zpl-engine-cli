@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] — 2026-05-10
+
+Tiny patch to keep CLI + MCP env vars in lockstep. After shipping
+`zpl-engine-mcp@4.1.0`, an audit confirmed both packages now ship the
+same defences — but the env-var name for the "allow localhost as engine
+host" escape-hatch was different (`ZPL_ALLOW_LOCALHOST` in CLI vs
+`ZPL_ENGINE_ALLOW_INSECURE_LOCAL` in MCP). Confusing for self-hosters.
+
+### Changed
+
+- **`ZPL_ENGINE_ALLOW_INSECURE_LOCAL=1` is now the canonical name** for
+  the "treat localhost / 127.0.0.1 / [::1] as a valid engine host"
+  override. The old name (`ZPL_ALLOW_LOCALHOST`) is still honoured for
+  backwards compatibility with anyone who set it during the v1.0/v1.1.0
+  window — both names work, the new one is preferred and documented.
+
+### Why a patch bump (1.1.0 → 1.1.1) and not a minor
+
+Pure rename with backwards-compatible fallback — no new behaviour, no
+new commands, no new env vars in net (one new name, one preserved old).
+Per semver, that's PATCH.
+
+[1.1.1]: https://github.com/cicicalex/zpl-engine-cli/releases/tag/v1.1.1
+
 ## [1.1.0] — 2026-05-10
 
 ### Added

@@ -29,6 +29,19 @@ const DEFAULT_ALLOWED_HOSTS = [
 
 const LOCALHOST_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
+/**
+ * v1.1.1 ALIGNMENT: env var renamed from ZPL_ALLOW_LOCALHOST to
+ * ZPL_ENGINE_ALLOW_INSECURE_LOCAL so CLI + MCP use IDENTICAL env var
+ * names. The old name is still honoured for backwards compatibility
+ * with anyone who set it during the v1.0/v1.1.0 window.
+ */
+function localhostAllowed(): boolean {
+  return (
+    process.env.ZPL_ENGINE_ALLOW_INSECURE_LOCAL === "1" ||
+    process.env.ZPL_ALLOW_LOCALHOST === "1"
+  );
+}
+
 export class EngineUrlError extends Error {
   constructor(reason: string, url: string) {
     super(`Refusing to use engine URL "${url}": ${reason}`);
@@ -51,7 +64,7 @@ function effectiveAllowlist(): string[] {
   // Localhost only allowed if user explicitly opts in. Useful for engine devs
   // running a local instance, but never the default — a typo can't accidentally
   // route traffic to localhost where another process might intercept it.
-  if (process.env.ZPL_ALLOW_LOCALHOST === "1") {
+  if (localhostAllowed()) {
     list.push(...LOCALHOST_HOSTS);
   }
   return list.map((h) => h.toLowerCase());
