@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.3] — 2026-05-11
+
+Implements ADR 0002 (`zpl-engine-sdk/docs/adr/0002-x-zpl-client-headers.md`)
+in the CLI. Sister release to `zpl-engine-mcp@4.1.2` — both MCP and CLI
+now identify themselves to the engine with structured headers
+independent of User-Agent.
+
+### Added
+
+- **`X-ZPL-Client: cli`** header on every engine request.
+- **`X-ZPL-Client-Version: <package version>`** header on every engine
+  request, sourced from a new exported `readPkgVersion()` in
+  `src/user-agent.ts`. Single source of truth: same function feeds both
+  the User-Agent product token and the X-ZPL-Client-Version header so
+  they cannot drift.
+
+Headers added to `api-client.ts` `headers()` alongside `Authorization`
+/ `Content-Type` / `User-Agent`.
+
+### Compatibility
+
+- Backwards compatible: engine ignores unknown headers today; once
+  engine-side telemetry persistence ships, these headers populate the
+  dashboard automatically with no CLI redeploy needed.
+- SDK TypeScript + Python ship the same convention from
+  `zpl-engine-sdk` commit `d05dfd9`.
+- MCP (`zpl-engine-mcp@4.1.2`) ships matching headers in the same wave.
+
+[1.1.3]: https://github.com/cicicalex/zpl-engine-cli/releases/tag/v1.1.3
+
 ## [1.1.2] — 2026-05-10
 
 Patch release surfacing two real bugs found during the joint MCP+CLI

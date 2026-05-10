@@ -20,9 +20,13 @@
 
 import { createRequire } from "node:module";
 
-// Read version from package.json so the UA always tracks the published
-// version without needing a manual update on every release.
-function readVersion(): string {
+/**
+ * Read package version from package.json. Exported so api-client can also
+ * use it for the X-ZPL-Client-Version header (ADR 0002 in zpl-engine-sdk
+ * docs/adr/0002-x-zpl-client-headers.md). Single source of truth — both
+ * UA and X-ZPL-Client-Version always agree on what version they advertise.
+ */
+export function readPkgVersion(): string {
   try {
     const require = createRequire(import.meta.url);
     const pkg = require("../package.json") as { version?: string };
@@ -32,6 +36,6 @@ function readVersion(): string {
   }
 }
 
-const VERSION = readVersion();
+const VERSION = readPkgVersion();
 
 export const USER_AGENT = `Mozilla/5.0 (compatible; zpl-engine-cli/${VERSION}; +https://github.com/cicicalex/zpl-engine-cli)`;

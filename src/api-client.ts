@@ -8,7 +8,7 @@
  *   and surfaces ApiCloudflareError instead of crashing on res.json().
  */
 
-import { USER_AGENT } from "./user-agent.js";
+import { USER_AGENT, readPkgVersion } from "./user-agent.js";
 
 export interface ComputeRequest {
   d: number;
@@ -126,6 +126,13 @@ export class ApiClient {
       // all use the SAME envelope — diagnose's "✓ engine reachable" then
       // actually predicts whether real requests will pass the WAF.
       "User-Agent": USER_AGENT,
+      // ADR 0002 (zpl-engine-sdk/docs/adr/0002-x-zpl-client-headers.md):
+      // structured client identity for engine telemetry. Independent of
+      // User-Agent free text — middleware can reliably partition traffic
+      // by X-ZPL-Client. Engine persists into usage_log.client_type /
+      // .client_version when E2 ships (Alex / Rust). Harmless until then.
+      "X-ZPL-Client": "cli",
+      "X-ZPL-Client-Version": readPkgVersion(),
     };
   }
 
