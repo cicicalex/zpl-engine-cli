@@ -10,8 +10,15 @@
  *
  * The default flow asks for confirmation before deleting anything. Pass
  * `--yes` to skip the prompt for non-interactive use (CI, scripts, agents).
+ *
+ * v1.0.0 fix (Bug #10): pre-v1.0 if the post-wipe device flow failed (timeout,
+ * network down, user denied), the user was left with NO config — strictly
+ * worse than the broken state they started with. Now we back the config up
+ * to ~/.zpl/config.toml.bak before deletion, and on login failure we offer
+ * a clear restore command so they can roll back.
  */
 import { createInterface } from "node:readline/promises";
+import { copyFileSync, existsSync, renameSync } from "node:fs";
 import chalk from "chalk";
 import { deleteConfig, getConfigPath, readConfig } from "../config.js";
 import { cmdLogin } from "./login.js";
@@ -19,6 +26,10 @@ import { cmdLogin } from "./login.js";
 export interface RepairOptions {
   /** Skip the "delete config?" prompt. */
   yes?: boolean;
+}
+
+function backupPath(): string {
+  return getConfigPath() + ".bak";
 }
 
 export async function cmdRepair(opts: RepairOptions = {}): Promise<void> {
@@ -39,6 +50,9 @@ export async function cmdRepair(opts: RepairOptions = {}): Promise<void> {
       )}).\n`,
     ),
   );
+  process.stdout.write(
+    chalk.gray(`A backup will be saved to ${backupPath()} so you can roll back if login fails.\n`),
+  );
 
   if (!opts.yes) {
     if (!process.stdin.isTTY) {
@@ -58,6 +72,23 @@ export async function cmdRepair(opts: RepairOptions = {}): Promise<void> {
     }
   }
 
+  // ── Backup first so we can roll back if the device flow fails ──────
+  const bak = backupPath();
+  try {
+    copyFileSync(getConfigPath(), bak);
+    process.stdout.write(chalk.gray(`✓ Backed up to ${bak}\n`));
+  } catch (err) {
+    // Backup failure is fatal — proceeding without one means a repair gone
+    // wrong leaves the user with nothing.
+    process.stderr.write(
+      chalk.red(
+        `Could not back up config: ${(err as Error).message}\n` +
+          `Aborting repair to avoid losing your credentials.\n`,
+      ),
+    );
+    process.exit(1);
+  }
+
   const removed = deleteConfig();
   if (removed) {
     process.stdout.write(chalk.green(`✓ Removed ${getConfigPath()}.\n\n`));
@@ -67,5 +98,31 @@ export async function cmdRepair(opts: RepairOptions = {}): Promise<void> {
   }
 
   process.stdout.write(chalk.bold("Starting fresh login…\n"));
-  await cmdLogin({ force: true });
+  try {
+    await cmdLogin({ force: true });
+    // Login succeeded — the new config is in place. We can drop the backup
+    // (not strictly necessary, but keeps the dir clean and signals success).
+    if (existsSync(bak)) {
+      try {
+        renameSync(bak, bak + ".old");
+      } catch {
+        // Best-effort cleanup; not critical if it fails.
+      }
+    }
+  } catch (err) {
+    process.stderr.write(
+      chalk.red(`\nLogin failed during repair: ${(err as Error).message}\n`) +
+        chalk.yellow(
+          `\nYour previous config is still backed up at:\n  ${bak}\n\n`,
+        ) +
+        chalk.gray(
+          `To restore, run:\n` +
+            (process.platform === "win32"
+              ? `  copy "${bak}" "${getConfigPath()}"\n`
+              : `  cp "${bak}" "${getConfigPath()}"\n`) +
+            `\nOr try \`zpl repair\` again.\n`,
+        ),
+    );
+    process.exit(1);
+  }
 }

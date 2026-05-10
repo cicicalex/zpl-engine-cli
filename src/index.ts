@@ -38,9 +38,11 @@ import { cmdConsistency } from "./commands/consistency.js";
 import { cmdCompare } from "./commands/compare.js";
 import { cmdDiff } from "./commands/diff.js";
 import { cmdHistory } from "./commands/history.js";
+import { cmdPipe } from "./commands/pipe.js";
+import { cmdAbout } from "./commands/about.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "0.2.0";
+const VERSION = "1.0.0";
 
 function dieFormatted(err: unknown, verbose: boolean): never {
   if (err instanceof ApiAuthError) {
@@ -192,6 +194,36 @@ program
   .action(async () => {
     try {
       await cmdHistory();
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("pipe")
+  .description("Score text from stdin. --threshold N exits 1 if AIN < N (CI gate).")
+  .option("-t, --threshold <n>", "exit 1 if AIN score is below this value (1-100)")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .option("--max-bytes <n>", "max bytes to read from stdin (default 1000000)")
+  .action(async (opts: { threshold?: string; output?: string; maxBytes?: string }) => {
+    try {
+      await cmdPipe({
+        threshold: opts.threshold,
+        output: opts.output as "text" | "json" | undefined,
+        maxBytes: opts.maxBytes,
+      });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("about")
+  .description("What is ZPL, what does this CLI do, where to learn more")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { output?: string }) => {
+    try {
+      await cmdAbout({ output: opts.output as "text" | "json" | undefined });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }

@@ -4,7 +4,11 @@
  * - Retries 3x with exponential backoff on 5xx / network errors only.
  * - Never retries 4xx (auth failure must surface immediately).
  * - Translates 401/429/5xx into typed exceptions the command layer can format.
+ * - Detects Cloudflare HTML interstitials (200 + text/html OR 4xx + HTML body)
+ *   and surfaces ApiCloudflareError instead of crashing on res.json().
  */
+
+import { USER_AGENT } from "./user-agent.js";
 
 export interface ComputeRequest {
   d: number;
@@ -104,7 +108,12 @@ export class ApiClient {
   constructor(opts: ApiClientOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
-    this.maxRetries = opts.maxRetries ?? 3;
+    // Clamp maxRetries to [0, 5]. Pre-v1.0.0 a typo like `maxRetries: 99999`
+    // (or env var ZPL_MAX_RETRIES=-1 once we wire that up) could either spin
+    // forever or short-circuit to no retries silently. 5 is enough headroom
+    // for a flaky network without DOS-ing the engine on a real outage.
+    const requested = opts.maxRetries ?? 3;
+    this.maxRetries = Math.max(0, Math.min(5, Number.isFinite(requested) ? requested : 3));
     this.verbose = opts.verbose ?? false;
   }
 
@@ -112,10 +121,11 @@ export class ApiClient {
     return {
       Authorization: `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
-      // Cloudflare Bot Fight Mode 403s any non-Mozilla UA. Keep this in
-      // lockstep with device-flow.ts USER_AGENT and mcp/src/setup.ts.
-      "User-Agent":
-        "Mozilla/5.0 (compatible; zpl-engine-cli/0.1.2; +https://github.com/cicicalex/zpl-engine-cli)",
+      // Cloudflare Bot Fight Mode 403s any non-Mozilla UA. The UA string
+      // lives in src/user-agent.ts so api-client, device-flow, and diagnose
+      // all use the SAME envelope — diagnose's "✓ engine reachable" then
+      // actually predicts whether real requests will pass the WAF.
+      "User-Agent": USER_AGENT,
     };
   }
 

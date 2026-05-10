@@ -18,7 +18,8 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import { readConfig, getConfigPath } from "../config.js";
 import { isValidApiKeyFormat, isServiceKey } from "../api-key-format.js";
-import { ApiClient, ApiAuthError } from "../api-client.js";
+import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
+import { USER_AGENT } from "../user-agent.js";
 
 type CheckStatus = "PASS" | "FAIL" | "WARN" | "SKIP";
 
@@ -93,10 +94,11 @@ export async function cmdDiagnose(): Promise<void> {
   try {
     const res = await fetch(`${baseUrl}/health`, {
       signal: AbortSignal.timeout(8000),
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; zpl-engine-cli/diagnose; +https://github.com/cicicalex/zpl-engine-cli)",
-      },
+      // Use the SAME UA as ApiClient — diagnose's job is to predict whether
+      // real `zpl check`/`zpl pipe` requests will pass the WAF. Pre-v1.0.0
+      // diagnose used its own "diagnose" UA which could pass while the
+      // real one failed, leading to false-pass diagnoses.
+      headers: { "User-Agent": USER_AGENT },
     });
     if (res.ok) {
       engineReachable = true;
@@ -157,10 +159,19 @@ export async function cmdDiagnose(): Promise<void> {
         results.push({
           name: "Engine auth",
           status: "FAIL",
-          detail: "Engine rejected the key (401/403)",
+          detail: "Engine rejected the key (401)",
           hint:
             "Either the key was revoked or replication is lagging. " +
             "Try `zpl repair --yes` to re-login.",
+        });
+      } else if (err instanceof ApiCloudflareError) {
+        results.push({
+          name: "Engine auth",
+          status: "FAIL",
+          detail: `Cloudflare blocked the auth probe${err.cfRay ? ` (cf-ray: ${err.cfRay})` : ""}`,
+          hint:
+            "Real commands will also fail until the WAF rule clears. " +
+            "Wait a moment and retry, or report the cf-ray ID at zeropointlogic.io/support.",
         });
       } else {
         results.push({
@@ -190,7 +201,12 @@ export async function cmdDiagnose(): Promise<void> {
     for (const f of fails) {
       if (f.hint) process.stdout.write(chalk.yellow(`  → ${f.name}: ${f.hint}`) + "\n");
     }
-    process.exit(1);
+    // process.exitCode (not process.exit): the engine reachability check
+    // uses fetch+AbortSignal.timeout. On Windows, calling exit() while a
+    // timer is still in-flight tripped a libuv assertion (src/win/async.c).
+    // exitCode lets the event loop drain naturally before exit.
+    process.exitCode = 1;
+    return;
   }
 
   const warns = results.filter((r) => r.status === "WARN");

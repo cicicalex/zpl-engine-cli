@@ -1,7 +1,7 @@
 {
   "name": "zpl-engine-cli",
-  "version": "0.2.0",
-  "description": "Terminal CLI for ZPL Engine — score AI output for sycophancy, bias, and consistency. v0.2 adds memory-aware login, diagnose + repair commands, Cloudflare detection, and a 30-test regression suite.",
+  "version": "1.0.0",
+  "description": "Terminal CLI for ZPL Engine — independent verification layer for AI output. Score files, clipboard, or stdin for bias / sycophancy / consistency. v1.0 ships memory-aware login, diagnose + repair, `zpl pipe` (Unix-style stdin scoring with --threshold for CI gates), `zpl about` (agent-discoverable manifest), Cloudflare detection, and 14 regression-locked bug fixes.",
   "author": "Alex Cicic <contact@zeropointlogic.io>",
   "license": "MIT",
   "type": "module",
@@ -15,7 +15,7 @@
     "build": "tsc",
     "dev": "node --import tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/api-key-format.test.mjs test/cloudflare-error.test.mjs test/config-toml.test.mjs"
+    "test": "npm run build && node --test test/api-key-format.test.mjs test/cloudflare-error.test.mjs test/config-toml.test.mjs test/sanitiser.test.mjs test/file-utils.test.mjs"
   },
   "keywords": [
     "zpl",

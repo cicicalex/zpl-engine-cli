@@ -1,9 +1,9 @@
-import { readFileSync, existsSync } from "node:fs";
 import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
+import { readTextFileOrDie } from "../file-utils.js";
 
 export interface CheckResult {
   ain: number;
@@ -56,14 +56,8 @@ export async function runCheck(text: string, label: string): Promise<CheckResult
 }
 
 export async function cmdCheck(filePath: string): Promise<void> {
-  if (!existsSync(filePath)) {
-    process.stderr.write(chalk.red(`File not found: ${filePath}\n`));
-    process.exit(1);
-  }
-  const text = readFileSync(filePath, "utf-8");
-  if (text.trim().length < 10) {
-    process.stderr.write(chalk.red(`File is too short to analyze (minimum 10 characters).\n`));
-    process.exit(1);
-  }
+  // readTextFileOrDie handles: not found, perm denied, too big, too short,
+  // and exits with a clear red message + actionable hint per failure mode.
+  const text = readTextFileOrDie(filePath);
   await runCheck(text, filePath);
 }

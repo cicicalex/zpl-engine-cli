@@ -6,6 +6,14 @@
  * dependencies. The log is capped at MAX_ENTRIES to keep the file small;
  * anyone who actually needs a real queryable history can pipe `zpl check`
  * output to whatever they want.
+ *
+ * v1.0.0 privacy notes:
+ *   - Inputs are SHA-256 hashed before persistence (see hashInput) — the
+ *     raw text is never written to disk.
+ *   - Status field is sanitised by sanitiseStatus() to redact any keys an
+ *     engine response might accidentally echo back. Defence in depth: the
+ *     engine should never put secrets here, but the cost of redacting is
+ *     near-zero and a leak would be permanent.
  */
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -13,6 +21,35 @@ import { join } from "node:path";
 import { getConfigDir, ensureConfigDir } from "./config.js";
 
 const MAX_ENTRIES = 500;
+
+/**
+ * Defensive sanitiser for status / free-text fields written to history.json.
+ *
+ * Mirrors the regex set in mcp/src/store.ts so both clients redact the same
+ * shapes. The MCP found multiple real bugs where an error path leaked the
+ * full ZPL key into a user-visible error message; the CLI doesn't have that
+ * surface today, but we wear seatbelts.
+ *
+ * Patterns redacted:
+ *   - ZPL user keys: zpl_u_[prefix_]<20+ hex>          (any wizard variant)
+ *   - ZPL service keys: zpl_s_<20+ hex>                (server-side only)
+ *   - Generic Bearer tokens
+ *   - Anthropic / OpenAI sk-* tokens (any length)
+ *   - Groq gsk_* tokens
+ */
+const SECRET_PATTERNS: RegExp[] = [
+  /zpl_[us]_(?:[a-z]+_)?[a-f0-9]{20,}/gi,
+  /Bearer\s+[A-Za-z0-9._\-+/=]{16,}/gi,
+  /sk-[A-Za-z0-9_-]+/gi,
+  /gsk_[A-Za-z0-9_-]+/gi,
+];
+
+export function sanitiseStatus(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  let out = value;
+  for (const re of SECRET_PATTERNS) out = out.replace(re, "[REDACTED]");
+  return out;
+}
 
 export interface HistoryRow {
   id: number;
@@ -73,7 +110,8 @@ export function appendHistory(args: AppendHistoryArgs): void {
     command: args.command,
     input_hash: hashInput(args.input),
     score: args.score ?? null,
-    status: args.status ?? null,
+    // Defensive: redact any secret-shaped strings the engine might echo back.
+    status: sanitiseStatus(args.status ?? null),
     tokens: args.tokens ?? null,
   });
   writeAll(rows);

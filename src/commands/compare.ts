@@ -1,10 +1,10 @@
-import { readFileSync, existsSync } from "node:fs";
 import chalk from "chalk";
 import Table from "cli-table3";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
+import { readTextFileOrDie } from "../file-utils.js";
 
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
@@ -17,17 +17,13 @@ async function score(client: ApiClient, text: string) {
 }
 
 export async function cmdCompare(a: string, b: string): Promise<void> {
-  for (const p of [a, b]) {
-    if (!existsSync(p)) {
-      process.stderr.write(chalk.red(`File not found: ${p}\n`));
-      process.exit(1);
-    }
-  }
+  // Read both files first so size/permission errors fail fast before we hit
+  // the engine. readTextFileOrDie handles every failure mode + sets exit 1.
+  const textA = readTextFileOrDie(a);
+  const textB = readTextFileOrDie(b);
+
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
-
-  const textA = readFileSync(a, "utf-8");
-  const textB = readFileSync(b, "utf-8");
 
   const [sA, sB] = await Promise.all([score(client, textA), score(client, textB)]);
   const delta = sB.ain - sA.ain;

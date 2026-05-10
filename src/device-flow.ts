@@ -14,19 +14,15 @@
  */
 import { spawn } from "node:child_process";
 import { platform } from "node:os";
+import { USER_AGENT } from "./user-agent.js";
 
 export const DEFAULT_SITE = process.env.ZPL_SITE ?? "https://zeropointlogic.io";
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_MAX_INTERVAL_MS = 10_000;
-
-// Cloudflare Bot Fight Mode on zeropointlogic.io silently 403s any
-// User-Agent that doesn't start with "Mozilla/". Node's default fetch UA
-// ("node") and any plain `zpl-engine-cli/<ver>` UA hit the challenge page,
-// which breaks `zpl login` before the device flow can start. Prefix
-// Mozilla/5.0 + (compatible; <our tool>) — the same convention bingbot and
-// slackbot use — clears the challenge while staying identifiable in logs.
-// Keep this in lockstep with mcp/src/setup.ts USER_AGENT.
-const USER_AGENT = "Mozilla/5.0 (compatible; zpl-engine-cli/0.1.2; +https://github.com/cicicalex/zpl-engine-cli)";
+/** RFC 8628 §3.5 says polling SHOULD be at least 5s. We allow 3s as a
+ *  reasonable lower bound (most servers behave fine with that), but we
+ *  refuse to poll faster than that even if the server returns 1. */
+const POLL_MIN_INTERVAL_MS = 3_000;
 
 export interface StartResponse {
   device_code: string;
@@ -99,7 +95,11 @@ export async function startDeviceFlow(site: string, deviceName: string): Promise
     user_code: data.user_code,
     verification_uri: data.verification_uri,
     verification_uri_complete: data.verification_uri_complete,
-    interval_s: Math.max(1, Math.min(30, data.interval_s ?? 2)),
+    // Server suggests interval, but we floor at POLL_MIN_INTERVAL_MS to
+    // protect the engine from accidental DOS (e.g. server bug returns 0)
+    // and ceiling at 30s so the user's terminal doesn't sit "frozen" too
+    // long between polls.
+    interval_s: Math.max(POLL_MIN_INTERVAL_MS / 1000, Math.min(30, data.interval_s ?? 5)),
     expires_at: data.expires_at ?? new Date(Date.now() + POLL_TIMEOUT_MS).toISOString(),
   };
 }
@@ -130,7 +130,12 @@ export async function waitForApproval(
   start: StartResponse,
   opts: WaitOptions = {},
 ): Promise<StatusApproved> {
-  const intervalMs = Math.min(POLL_MAX_INTERVAL_MS, start.interval_s * 1000);
+  // Defence in depth: even if startDeviceFlow's clamp was bypassed somehow,
+  // never poll faster than POLL_MIN_INTERVAL_MS to protect engine.
+  const intervalMs = Math.max(
+    POLL_MIN_INTERVAL_MS,
+    Math.min(POLL_MAX_INTERVAL_MS, start.interval_s * 1000),
+  );
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {

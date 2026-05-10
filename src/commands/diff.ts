@@ -1,9 +1,9 @@
-import { readFileSync, existsSync } from "node:fs";
 import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
 import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
+import { readTextFileOrDie } from "../file-utils.js";
 
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
@@ -12,17 +12,11 @@ async function score(client: ApiClient, text: string) {
 }
 
 export async function cmdDiff(before: string, after: string): Promise<void> {
-  for (const p of [before, after]) {
-    if (!existsSync(p)) {
-      process.stderr.write(chalk.red(`File not found: ${p}\n`));
-      process.exit(1);
-    }
-  }
+  const tBefore = readTextFileOrDie(before);
+  const tAfter = readTextFileOrDie(after);
+
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
-
-  const tBefore = readFileSync(before, "utf-8");
-  const tAfter = readFileSync(after, "utf-8");
 
   const [sBefore, sAfter] = await Promise.all([
     score(client, tBefore),
