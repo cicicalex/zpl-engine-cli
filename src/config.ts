@@ -102,7 +102,18 @@ export function deleteConfig(): boolean {
  */
 function parseToml(src: string): ZplConfig | null {
   const sections: Record<string, Record<string, string>> = {};
-  let current = "";
+  // v1.1.2 BUG #2 FIX: pre-1.1.2 the parser required `[auth]`/`[engine]`/`[defaults]`
+  // section headers — only its OWN writeConfig output. But zpl-engine-mcp
+  // setup.ts writes a FLAT TOML (api_key/user_email/created_at at top level
+  // with no section header), and both packages use ~/.zpl/config.toml as the
+  // shared credential store. So a user who set up via `npx zpl-engine-mcp setup`
+  // could not use ANY CLI command — `readConfig()` returned null and CLI said
+  // "Not logged in".
+  //
+  // Fix: keys without a section header land in a synthetic "auth" section
+  // (the most common case for flat-format configs). Sectioned configs keep
+  // working unchanged. Verified compatible with both formats.
+  let current = "auth"; // default section so flat configs work
   for (const rawLine of src.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
@@ -113,8 +124,9 @@ function parseToml(src: string): ZplConfig | null {
       continue;
     }
     const kv = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"\s*$/);
-    if (kv && current) {
+    if (kv) {
       const [, k, v] = kv;
+      sections[current] = sections[current] ?? {};
       sections[current]![k!] = v!
         .replace(/\\n/g, "\n")
         .replace(/\\"/g, '"')

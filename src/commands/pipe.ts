@@ -179,5 +179,10 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
   }
 
   // ── Exit code ────────────────────────────────────────────────────────
-  if (!passed) process.exit(1);
+  // process.exitCode (not process.exit) — the engine call uses fetch +
+  // AbortSignal.timeout. On Windows, calling exit() while a timer is still
+  // in-flight tripped a libuv assertion in src/win/async.c (same fix we
+  // applied to update-check + diagnose). exitCode lets the event loop
+  // drain naturally before exit.
+  if (!passed) process.exitCode = 1;
 }

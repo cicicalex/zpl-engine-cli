@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] — 2026-05-10
+
+Patch release surfacing two real bugs found during the joint MCP+CLI
+test pass (5 test categories × 2 packages). Both bugs were silent —
+they did not crash, they just produced wrong / unfriendly behaviour
+that turned a working install into "doesn't work" silently.
+
+### Fixed
+
+- **CLI `parseToml` parser required `[auth]` section header — but
+  zpl-engine-mcp@4.x writes a FLAT TOML.** Both packages share the
+  credentials store at `~/.zpl/config.toml`. MCP's `setup` writes
+  `api_key = "…"` at top level (no `[auth]`); pre-1.1.2 CLI parser
+  ignored everything outside a section, so `readConfig()` returned
+  null and CLI said "Not logged in" — even though the file existed
+  with valid credentials a user JUST wrote via `npx zpl-engine-mcp
+  setup`. End result: every cross-package user (most of them) had
+  a broken CLI on first run.
+
+  Fix: keys before any section header now land in a synthetic `auth`
+  section. Sectioned configs (CLI's own writeConfig output) keep
+  working unchanged. Verified compatible with both formats.
+
+- **`zpl pipe --threshold N` crashed on Windows when AIN < N.** Same
+  libuv `src/win/async.c` assertion we fixed in `update-check.ts` and
+  `diagnose.ts` — `process.exit(1)` while a fetch's
+  `AbortSignal.timeout` is still in flight. Replaced with the
+  standard `process.exitCode = 1` pattern so the event loop drains
+  before exit. CI scripts on Windows that gate on `zpl pipe`
+  threshold no longer see "exit 127" + libuv assertion noise; they
+  see clean `exit 1`.
+
+[1.1.2]: https://github.com/cicicalex/zpl-engine-cli/releases/tag/v1.1.2
+
 ## [1.1.1] — 2026-05-10
 
 Tiny patch to keep CLI + MCP env vars in lockstep. After shipping
