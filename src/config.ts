@@ -138,11 +138,45 @@ function parseToml(src: string): ZplConfig | null {
   };
 }
 
-/** Throws with a user-friendly message if no config is present. Used by all commands except login. */
+/**
+ * Throws with a user-friendly message if no usable credentials are present.
+ *
+ * Resolution order (highest precedence first):
+ *   1. ZPL_API_KEY environment variable — for CI / Docker / one-off scripts
+ *      where running an interactive `zpl login` doesn't fit. The email is
+ *      faked to "env@local" so commands that print "logged in as X" don't
+ *      crash; engine endpoints that need a real email will still 401, which
+ *      is the correct behaviour.
+ *   2. ~/.zpl/config.toml on disk — what `zpl login` writes.
+ *
+ * v1.0.0 added the env var fallback. Pre-v1 a CI run had to either ship a
+ * pre-baked config.toml (annoying) or run `zpl login` (impossible in
+ * non-interactive). Now `ZPL_API_KEY=zpl_u_... zpl pipe` Just Works.
+ */
 export function requireConfig(): ZplConfig {
+  // Env var fallback first — explicit override beats whatever's on disk.
+  const envKey = process.env.ZPL_API_KEY?.trim();
+  if (envKey) {
+    return {
+      auth: {
+        api_key: envKey,
+        user_email: process.env.ZPL_USER_EMAIL?.trim() || "env@local",
+        created_at: new Date(0).toISOString(), // sentinel — "from env, not file"
+      },
+      engine: {
+        base_url: process.env.ZPL_ENGINE_URL?.trim() || "https://engine.zeropointlogic.io",
+      },
+      defaults: {
+        model: process.env.ZPL_DEFAULT_MODEL?.trim() || "claude-haiku-4-5",
+      },
+    };
+  }
+
   const cfg = readConfig();
   if (!cfg) {
-    const err = new Error("Not logged in. Run `zpl login` first.");
+    const err = new Error(
+      "Not logged in. Run `zpl login` first, or set ZPL_API_KEY env var (CI/Docker).",
+    );
     (err as NodeJS.ErrnoException).code = "ENOCONFIG";
     throw err;
   }

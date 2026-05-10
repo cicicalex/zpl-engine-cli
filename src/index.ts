@@ -40,6 +40,10 @@ import { cmdDiff } from "./commands/diff.js";
 import { cmdHistory } from "./commands/history.js";
 import { cmdPipe } from "./commands/pipe.js";
 import { cmdAbout } from "./commands/about.js";
+import { cmdQuota } from "./commands/quota.js";
+import { cmdPlans } from "./commands/plans.js";
+import { cmdExport } from "./commands/export.js";
+import { cmdUpdate } from "./commands/update.js";
 import { checkLatestVersion } from "./update-check.js";
 
 const VERSION = "1.0.0";
@@ -100,10 +104,11 @@ program
 
 program
   .command("whoami")
-  .description("Show the logged-in user and plan")
-  .action(async () => {
+  .description("Show the logged-in user, plan, and quota")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { output?: string }) => {
     try {
-      await cmdWhoami();
+      await cmdWhoami({ output: opts.output as "text" | "json" | undefined });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
@@ -224,6 +229,58 @@ program
   .action(async (opts: { output?: string }) => {
     try {
       await cmdAbout({ output: opts.output as "text" | "json" | undefined });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("quota")
+  .description("Show tokens used this month + remaining")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { output?: string }) => {
+    try {
+      await cmdQuota({ output: opts.output as "text" | "json" | undefined });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("plans")
+  .description("List all ZPL plans + monthly token quotas + prices")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { output?: string }) => {
+    try {
+      await cmdPlans({ output: opts.output as "text" | "json" | undefined });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("export <format>")
+  .description("Export local history to stdout (json | csv | markdown). Pipe to a file.")
+  .option("-l, --limit <n>", "max entries to export (default: all)")
+  .action(async (format: string, opts: { limit?: string }) => {
+    try {
+      await cmdExport(format, { limit: opts.limit });
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("update")
+  .description("Check for a new version and tell you how to install it (--apply runs npm install)")
+  .option("--apply", "actually run `npm install -g zpl-engine-cli@latest` (skip on shared boxes)")
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .action(async (opts: { apply?: boolean; output?: string }) => {
+    try {
+      await cmdUpdate({
+        apply: Boolean(opts.apply),
+        output: opts.output as "text" | "json" | undefined,
+      });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
