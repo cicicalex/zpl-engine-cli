@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 /**
- * zpl-engine-cli entry point. Commander sets up the nine commands spec'd in
- * docs/superpowers/specs/2026-04-17-zpl-engine-cli-device-flow-design.md §5.
+ * zpl-engine-cli entry point.
+ *
+ * v0.2.0 commands:
+ *   zpl login [--force]   - device-flow login (memory-aware: detects existing config)
+ *   zpl logout            - delete local config
+ *   zpl whoami            - show logged-in user + plan + quota
+ *   zpl diagnose          - health report (config + key + engine + auth)
+ *   zpl repair [--yes]    - wipe config + auto-relogin
+ *   zpl check <file>      - score a file for bias / neutrality
+ *   zpl watch             - watch the clipboard, score each paste
+ *   zpl consistency <q>   - run N consistency passes, report variance
+ *   zpl compare <a> <b>   - compare two files side by side
+ *   zpl diff <before> <after> - semantic delta between texts
+ *   zpl history           - show last 20 scored runs
  *
  * Errors bubble up here where we translate API client exceptions into a
  * single-line red message on stderr + exit code 1. Stack traces are only
@@ -9,10 +21,17 @@
  */
 import { Command } from "commander";
 import chalk from "chalk";
-import { ApiAuthError, ApiQuotaError, ApiNetworkError } from "./api-client.js";
+import {
+  ApiAuthError,
+  ApiQuotaError,
+  ApiNetworkError,
+  ApiCloudflareError,
+} from "./api-client.js";
 import { cmdLogin } from "./commands/login.js";
 import { cmdLogout } from "./commands/logout.js";
 import { cmdWhoami } from "./commands/whoami.js";
+import { cmdDiagnose } from "./commands/diagnose.js";
+import { cmdRepair } from "./commands/repair.js";
 import { cmdCheck } from "./commands/check.js";
 import { cmdWatch } from "./commands/watch.js";
 import { cmdConsistency } from "./commands/consistency.js";
@@ -21,12 +40,15 @@ import { cmdDiff } from "./commands/diff.js";
 import { cmdHistory } from "./commands/history.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "0.1.3";
+const VERSION = "0.2.0";
 
 function dieFormatted(err: unknown, verbose: boolean): never {
   if (err instanceof ApiAuthError) {
     process.stderr.write(chalk.red(err.message) + "\n");
   } else if (err instanceof ApiQuotaError) {
+    process.stderr.write(chalk.yellow(err.message) + "\n");
+  } else if (err instanceof ApiCloudflareError) {
+    // Yellow not red: the engine is fine, this is upstream WAF noise.
     process.stderr.write(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiNetworkError) {
     process.stderr.write(chalk.red(err.message) + "\n");
@@ -53,10 +75,11 @@ program
 
 program
   .command("login")
-  .description("Log in via device flow (opens browser)")
-  .action(async () => {
+  .description("Log in via device flow (opens browser). Detects existing login.")
+  .option("-f, --force", "skip the 'already logged in' prompt and re-run device flow")
+  .action(async (opts: { force?: boolean }) => {
     try {
-      await cmdLogin();
+      await cmdLogin({ force: Boolean(opts.force) });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
@@ -79,6 +102,29 @@ program
   .action(async () => {
     try {
       await cmdWhoami();
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("diagnose")
+  .description("Run a health report (config + key + engine + auth)")
+  .action(async () => {
+    try {
+      await cmdDiagnose();
+    } catch (err) {
+      dieFormatted(err, Boolean(program.opts().verbose));
+    }
+  });
+
+program
+  .command("repair")
+  .description("Wipe local config and start a fresh login")
+  .option("-y, --yes", "skip the confirmation prompt (non-interactive)")
+  .action(async (opts: { yes?: boolean }) => {
+    try {
+      await cmdRepair({ yes: Boolean(opts.yes) });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
@@ -154,10 +200,17 @@ program
 // Main async flow: run the version check first, then commander.
 // The version check is best-effort (non-blocking on network failure) but
 // forces upgrade on major version mismatch — same policy as the MCP.
+//
+// We use `process.exitCode = N; return;` instead of `process.exit(N)` to give
+// libuv time to drain pending handles (e.g. the AbortSignal.timeout from the
+// npm fetch in update-check.ts). On Windows, exit() while a timer is still
+// in-flight asserts inside src/win/async.c. Setting exitCode is the safe
+// alternative — Node exits cleanly when the event loop finally drains.
 (async () => {
   const upgradeCheck = await checkLatestVersion(VERSION);
   if (upgradeCheck === "block") {
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   // No args → show help + onboarding hint.
@@ -166,7 +219,8 @@ program
     process.stdout.write(
       "\n" + chalk.gray("Tip: run ") + chalk.cyan("`zpl login`") + chalk.gray(" to get started.\n"),
     );
-    process.exit(0);
+    process.exitCode = 0;
+    return;
   }
 
   try {

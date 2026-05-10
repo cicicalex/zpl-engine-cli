@@ -52,6 +52,42 @@ export class ApiNetworkError extends Error {
   }
 }
 
+/**
+ * Cloudflare returned an HTML challenge page instead of letting us through.
+ * This usually means our User-Agent or IP got flagged. Surface a clear,
+ * actionable error rather than crashing on `res.json()` against HTML.
+ *
+ * The cf-ray ID is gold for support — it lets the Cloudflare dashboard
+ * locate the exact request and tell you which rule fired.
+ */
+export class ApiCloudflareError extends Error {
+  public cfRay?: string;
+  constructor(cfRay: string | undefined) {
+    super(
+      `Cloudflare blocked the request${cfRay ? ` (cf-ray: ${cfRay})` : ""}. ` +
+        `If this persists, retry in a moment or report the cf-ray ID at zeropointlogic.io/support.`,
+    );
+    this.name = "ApiCloudflareError";
+    this.cfRay = cfRay;
+  }
+}
+
+/**
+ * True if `body` looks like a Cloudflare challenge HTML page.
+ * We check the first 500 chars to avoid hauling huge HTML into memory.
+ */
+export function looksLikeCloudflareHtml(body: string, contentType: string | null): boolean {
+  if (contentType && contentType.toLowerCase().includes("text/html")) return true;
+  const head = body.slice(0, 500).toLowerCase();
+  return (
+    head.includes("<!doctype html") ||
+    head.includes("<html") ||
+    head.includes("cf-mitigated") ||
+    head.includes("just a moment") ||  // CF challenge title
+    head.includes("attention required")  // CF block page
+  );
+}
+
 export interface ApiClientOptions {
   apiKey: string;
   baseUrl: string;
@@ -105,8 +141,17 @@ export class ApiClient {
           signal: AbortSignal.timeout(20_000),
         });
 
-        // Auth errors are terminal.
-        if (res.status === 401 || res.status === 403) throw new ApiAuthError();
+        // Auth errors are terminal — but 403 might also be a Cloudflare
+        // challenge, which has a very different fix (retry / change UA) than
+        // a real auth failure (re-login). Inspect the body before deciding.
+        if (res.status === 403) {
+          const body = await res.text().catch(() => "");
+          if (looksLikeCloudflareHtml(body, res.headers.get("content-type"))) {
+            throw new ApiCloudflareError(res.headers.get("cf-ray") ?? undefined);
+          }
+          throw new ApiAuthError();
+        }
+        if (res.status === 401) throw new ApiAuthError();
         if (res.status === 429) {
           const reset = res.headers.get("x-ratelimit-reset") ?? res.headers.get("retry-after") ?? undefined;
           throw new ApiQuotaError(reset);
@@ -116,14 +161,34 @@ export class ApiClient {
         if (res.status >= 500 && res.status < 600) {
           lastErr = new Error(`Engine returned ${res.status}`);
         } else if (!res.ok) {
-          // Other 4xx: surface body.
+          // Other 4xx: surface body. Detect HTML responses so we don't crash
+          // trying to JSON.parse a Cloudflare interstitial down the line.
           const body = await res.text().catch(() => "");
+          if (looksLikeCloudflareHtml(body, res.headers.get("content-type"))) {
+            throw new ApiCloudflareError(res.headers.get("cf-ray") ?? undefined);
+          }
           throw new Error(`Engine error ${res.status}: ${body.slice(0, 200) || res.statusText}`);
         } else {
+          // Even a 200 can be HTML if the request never reached the engine
+          // (Cloudflare interstitial returned 200 + HTML). Defend against it
+          // before we feed HTML to JSON.parse.
+          const ct = res.headers.get("content-type") ?? "";
+          if (ct.toLowerCase().includes("text/html")) {
+            // Drain body to release the connection cleanly, then surface CF.
+            await res.text().catch(() => "");
+            throw new ApiCloudflareError(res.headers.get("cf-ray") ?? undefined);
+          }
           return (await res.json()) as T;
         }
       } catch (err) {
-        if (err instanceof ApiAuthError || err instanceof ApiQuotaError) throw err;
+        // Cloudflare errors are terminal — retrying just hammers the same WAF.
+        // The user has to either wait or change UA/IP; neither helps in a loop.
+        if (
+          err instanceof ApiAuthError ||
+          err instanceof ApiQuotaError ||
+          err instanceof ApiCloudflareError
+        )
+          throw err;
         lastErr = err as Error;
       }
 
