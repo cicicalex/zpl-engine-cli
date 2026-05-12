@@ -62,7 +62,7 @@ import {
 import { cmdLogs, type LogTypeFilter } from "./commands/logs.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "1.1.5";
+const VERSION = "1.1.6";
 
 /**
  * Sanitise an arbitrary string before showing it to the user / writing to
@@ -183,22 +183,36 @@ program
   });
 
 program
-  .command("check <file>")
-  .description("Score a file for bias / neutrality")
-  .action(async (file: string) => {
+  .command("check [file]")
+  .description(
+    "Score a file (or stdin) for bias / neutrality. Examples:\n" +
+      '  zpl check file.txt\n' +
+      '  echo "..." | zpl check\n' +
+      '  echo "..." | zpl check -o json | jq .ain',
+  )
+  .option("-o, --output <fmt>", "output format: text (default) or json", "text")
+  .option(
+    "--max-bytes <n>",
+    "max bytes to read from stdin (1024..10MB; default 1MB)",
+  )
+  .action(async (file: string | undefined, opts: { output?: string; maxBytes?: string }) => {
     try {
-      await cmdCheck(file);
+      await cmdCheck(file, opts as { output?: "text" | "json"; maxBytes?: string });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
   });
 
 program
-  .command("watch")
-  .description("Watch the clipboard and score each new paste (Ctrl+C to stop)")
-  .action(async () => {
+  .command("watch [file]")
+  .description(
+    "Watch and score continuously. With <file>: re-score on disk save.\n" +
+      "Without args: watch the clipboard. Ctrl+C to stop.",
+  )
+  .option("--clipboard", "Force clipboard mode (default when no file given)")
+  .action(async (file: string | undefined, opts: { clipboard?: boolean }) => {
     try {
-      await cmdWatch();
+      await cmdWatch(file, opts);
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
@@ -229,10 +243,14 @@ program
 
 program
   .command("diff <before> <after>")
-  .description("Semantic delta between before/after texts (improved / worsened / unchanged)")
-  .action(async (before: string, after: string) => {
+  .description(
+    "Compare two text versions. Default: whole-file delta. --lines: paragraph-by-paragraph drift.",
+  )
+  .option("--lines", "Score line-by-line and surface which lines drifted")
+  .option("--max-lines <n>", "Cap on lines scored when --lines is on (2..200, default 40)")
+  .action(async (before: string, after: string, opts: { lines?: boolean; maxLines?: string }) => {
     try {
-      await cmdDiff(before, after);
+      await cmdDiff(before, after, opts);
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }
@@ -305,11 +323,12 @@ program
 
 program
   .command("export <format>")
+  .option("--with-config", "Include config summary (no API key) in the export bundle")
   .description("Export local history to stdout (json | csv | markdown). Pipe to a file.")
   .option("-l, --limit <n>", "max entries to export (default: all)")
-  .action(async (format: string, opts: { limit?: string }) => {
+  .action(async (format: string, opts: { limit?: string; withConfig?: boolean }) => {
     try {
-      await cmdExport(format, { limit: opts.limit });
+      await cmdExport(format, { limit: opts.limit, withConfig: opts.withConfig });
     } catch (err) {
       dieFormatted(err, Boolean(program.opts().verbose));
     }

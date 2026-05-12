@@ -6,6 +6,7 @@ import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
 import { TABLE_STYLE } from "../table-style.js";
+import { printDisclaimer } from "../disclaimer.js";
 
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
@@ -50,4 +51,5 @@ export async function cmdCompare(a: string, b: string): Promise<void> {
     status: delta > 0 ? "B_HIGHER" : delta < 0 ? "A_HIGHER" : "EQUAL",
     tokens: sA.tokens + sB.tokens,
   });
+  printDisclaimer();
 }

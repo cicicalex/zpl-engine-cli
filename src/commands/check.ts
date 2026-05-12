@@ -4,6 +4,14 @@ import { ApiClient } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
+import { printDisclaimer } from "../disclaimer.js";
+
+export interface CheckOptions {
+  /** Output format. */
+  output?: "text" | "json";
+  /** Cap on bytes when reading stdin (defence against unbounded streams). */
+  maxBytes?: string;
+}
 
 export interface CheckResult {
   ain: number;
@@ -25,7 +33,45 @@ function statusColor(ain: number): ChalkInstance {
   return chalk.red;
 }
 
-export async function runCheck(text: string, label: string): Promise<CheckResult> {
+/** Default cap: 1 MB. Same as `pipe`. */
+const DEFAULT_MAX_BYTES = 1_000_000;
+
+async function readStdin(maxBytes: number): Promise<string> {
+  if (process.stdin.isTTY) {
+    // Caller forgot to pass a file AND there's no piped input — fatal.
+    process.stderr.write(
+      chalk.red("zpl check: no file argument and no stdin.\n") +
+        chalk.gray(
+          `Usage:\n` +
+            `  zpl check <file>             score the contents of <file>\n` +
+            `  echo "text" | zpl check      score whatever is piped in\n`,
+        ),
+    );
+    process.exit(2);
+  }
+  process.stdin.setEncoding("utf-8");
+  const chunks: string[] = [];
+  let total = 0;
+  for await (const chunk of process.stdin) {
+    total += Buffer.byteLength(chunk as string, "utf-8");
+    if (total > maxBytes) {
+      process.stderr.write(
+        chalk.red(
+          `zpl check: input exceeds ${(maxBytes / 1_000_000).toFixed(1)} MB limit.\n`,
+        ),
+      );
+      process.exit(2);
+    }
+    chunks.push(chunk as string);
+  }
+  return chunks.join("");
+}
+
+export async function runCheck(
+  text: string,
+  label: string,
+  output: "text" | "json" = "text",
+): Promise<CheckResult> {
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
 
@@ -42,6 +88,26 @@ export async function runCheck(text: string, label: string): Promise<CheckResult
     tokens: result.tokens_used,
   });
 
+  if (output === "json") {
+    // Stable shape — keys match the docs example `jq .ain`.
+    process.stdout.write(
+      JSON.stringify(
+        {
+          ain,
+          status: result.ain_status,
+          verdict,
+          input_chars: text.length,
+          sentiment: { positive, negative, neutral, sentences, bias },
+          tokens_used: result.tokens_used,
+          source: label,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return { ain, status: result.ain_status, verdict, tokens: result.tokens_used };
+  }
+
   const color = statusColor(ain);
   process.stdout.write(`${chalk.bold(label)}  ${chalk.gray(`(${text.length} chars)`)}\n`);
   process.stdout.write(`  AIN      ${color.bold(String(ain) + "/100")}  ${color(result.ain_status)}\n`);
@@ -51,13 +117,54 @@ export async function runCheck(text: string, label: string): Promise<CheckResult
   );
   process.stdout.write(`  Bias     ${chalk.gray(bias.toFixed(2))}\n`);
   process.stdout.write(`  Tokens   ${chalk.gray(String(result.tokens_used))}\n`);
+  printDisclaimer();
 
   return { ain, status: result.ain_status, verdict, tokens: result.tokens_used };
 }
 
-export async function cmdCheck(filePath: string): Promise<void> {
-  // readTextFileOrDie handles: not found, perm denied, too big, too short,
-  // and exits with a clear red message + actionable hint per failure mode.
-  const text = readTextFileOrDie(filePath);
-  await runCheck(text, filePath);
+/**
+ * `zpl check [file]` — score text from a file argument OR from stdin.
+ *
+ * v1.1.6 fix (bugs #7 + #9): the website at zeropointlogic.io/cli has
+ * advertised stdin support since launch (`echo "..." | zpl check | jq .ain`)
+ * but the implementation required a file argument and emitted text only.
+ * This rewrite makes the file argument optional, falls back to stdin when
+ * absent, and adds `--output json` so the documented `jq` pipeline works.
+ */
+export async function cmdCheck(
+  filePath: string | undefined,
+  opts: CheckOptions = {},
+): Promise<void> {
+  const output = (opts.output ?? "text").toLowerCase();
+  if (output !== "text" && output !== "json") {
+    process.stderr.write(
+      chalk.red(`Invalid --output: "${opts.output}". Must be text or json.\n`),
+    );
+    process.exit(2);
+  }
+
+  const maxBytes = opts.maxBytes
+    ? Math.max(1024, Math.min(10_000_000, Number.parseInt(opts.maxBytes, 10) || DEFAULT_MAX_BYTES))
+    : DEFAULT_MAX_BYTES;
+
+  let text: string;
+  let label: string;
+  if (filePath) {
+    text = readTextFileOrDie(filePath);
+    label = filePath;
+  } else {
+    text = await readStdin(maxBytes);
+    label = "<stdin>";
+  }
+
+  if (text.trim().length < 10) {
+    process.stderr.write(
+      chalk.red(
+        `zpl check: input too short to analyze (need at least 10 non-whitespace chars).\n`,
+      ),
+    );
+    process.exit(2);
+  }
+
+  await runCheck(text, label, output as "text" | "json");
 }

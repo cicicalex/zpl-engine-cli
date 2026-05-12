@@ -38,6 +38,7 @@ import {
 } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
+import { printDisclaimer } from "../disclaimer.js";
 
 export interface PipeOptions {
   /** Exit 1 if AIN < threshold. 1-100. */
@@ -176,6 +177,8 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
       ? `AIN=${ain}/100 status=${res.ain_status} threshold=${threshold} verdict=${verdict} tokens=${res.tokens_used}`
       : `AIN=${ain}/100 status=${res.ain_status} tokens=${res.tokens_used}`;
     process.stdout.write(color(line) + "\n");
+    // Disclaimer only in text mode — JSON consumers parse the output.
+    printDisclaimer();
   }
 
   // ── Exit code ────────────────────────────────────────────────────────
