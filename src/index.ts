@@ -30,6 +30,7 @@ import chalk from "chalk";
 import {
   ApiAuthError,
   ApiQuotaError,
+  ApiQuotaExhaustedError,
   ApiNetworkError,
   ApiCloudflareError,
 } from "./api-client.js";
@@ -61,7 +62,7 @@ import {
 import { cmdLogs, type LogTypeFilter } from "./commands/logs.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "1.1.3";
+const VERSION = "1.1.4";
 
 /**
  * Sanitise an arbitrary string before showing it to the user / writing to
@@ -90,6 +91,10 @@ function dieFormatted(err: unknown, verbose: boolean): never {
 
   if (err instanceof ApiAuthError) {
     writeErr(chalk.red(err.message) + "\n");
+  } else if (err instanceof ApiQuotaExhaustedError) {
+    // Yellow not red — the user's setup is fine, they just need to upgrade.
+    // The multi-line message already contains plan ladder + /pricing link.
+    writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiQuotaError) {
     writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiCloudflareError) {

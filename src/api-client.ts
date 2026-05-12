@@ -49,6 +49,45 @@ export class ApiQuotaError extends Error {
   }
 }
 
+/**
+ * Monthly token quota exhausted (engine 403 with body
+ * "Token limit exceeded: X/Y used this month").
+ *
+ * Distinct from ApiAuthError so the user sees an upgrade prompt instead of
+ * being told to run `zpl logout && zpl login` — which the pre-v1.1.4 CLI
+ * did, sending users on a wild goose chase. (audit complet 12.05.)
+ *
+ * Distinct from ApiQuotaError (which is per-minute rate limiting and
+ * suggests a short retry).
+ */
+export class ApiQuotaExhaustedError extends Error {
+  public tokensUsed?: number;
+  public tokensLimit?: number;
+  constructor(tokensUsed?: number, tokensLimit?: number) {
+    const usage =
+      tokensUsed !== undefined && tokensLimit !== undefined
+        ? ` (${tokensUsed} / ${tokensLimit} tokens used this month)`
+        : "";
+    super(
+      [
+        `Monthly ZPL Engine quota exceeded${usage}.`,
+        ``,
+        `Upgrade at https://zeropointlogic.io/pricing`,
+        `  • Basic   $10/mo   10,000 tokens`,
+        `  • Pro     $29/mo   50,000 tokens`,
+        `  • GamePro $69/mo  150,000 tokens`,
+        ``,
+        `Or buy a one-off pack: https://zeropointlogic.io/dashboard/billing`,
+        ``,
+        `Your quota resets on the first of next month.`,
+      ].join("\n"),
+    );
+    this.name = "ApiQuotaExhaustedError";
+    this.tokensUsed = tokensUsed;
+    this.tokensLimit = tokensLimit;
+  }
+}
+
 export class ApiNetworkError extends Error {
   constructor(msg: string) {
     super(`Network error: ${msg}`);
@@ -159,12 +198,23 @@ export class ApiClient {
         });
 
         // Auth errors are terminal — but 403 might also be a Cloudflare
-        // challenge, which has a very different fix (retry / change UA) than
-        // a real auth failure (re-login). Inspect the body before deciding.
+        // challenge (retry / change UA) or a monthly quota exhaustion
+        // (upgrade plan), which have totally different fixes from a real
+        // auth failure (re-login). Inspect the body before deciding.
         if (res.status === 403) {
           const body = await res.text().catch(() => "");
           if (looksLikeCloudflareHtml(body, res.headers.get("content-type"))) {
             throw new ApiCloudflareError(res.headers.get("cf-ray") ?? undefined);
+          }
+          // Engine returns 403 with body "Token limit exceeded: X/Y used
+          // this month" on monthly quota exhaustion. Surface as a distinct
+          // error class so the user sees an upgrade prompt instead of
+          // being told to re-login (which won't help). (audit 12.05.)
+          if (/token limit exceeded/i.test(body)) {
+            const m = body.match(/(\d+)\s*\/\s*(\d+)/);
+            const used = m ? Number(m[1]) : undefined;
+            const limit = m ? Number(m[2]) : undefined;
+            throw new ApiQuotaExhaustedError(used, limit);
           }
           throw new ApiAuthError();
         }
