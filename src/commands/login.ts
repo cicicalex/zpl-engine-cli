@@ -11,6 +11,7 @@ import {
 import { writeConfig, getConfigPath, readConfig } from "../config.js";
 import { isValidApiKeyFormat, isServiceKey } from "../api-key-format.js";
 import { ApiClient } from "../api-client.js";
+import { USER_AGENT, readPkgVersion } from "../user-agent.js";
 
 export interface LoginOptions {
   /** Skip the "already logged in" prompt and re-run the device flow. */
@@ -134,6 +135,27 @@ export async function cmdLogin(opts: LoginOptions = {}): Promise<void> {
     chalk.green(`\nLogged in as ${chalk.bold(approved.user_email)} (plan: ${plan}).\n`),
   );
   process.stdout.write(chalk.gray(`Config saved to ${getConfigPath()}\n`));
+
+  // v1.1.5: fire-and-forget heartbeat ping so ZPL Main records this
+  // install as "successfully paired" — distinct from "ever made a
+  // /compute call". Lets Alex see the npm-download → paired-and-active
+  // funnel ratio in /admin/users. Silent on any failure (blocked
+  // outbound, 429, proxy stripping Authorization).
+  try {
+    const cliVersion = readPkgVersion();
+    await fetch("https://zeropointlogic.io/api/auth/cli/heartbeat", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${approved.api_key}`,
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+      },
+      body: JSON.stringify({ client: "cli", version: cliVersion }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    // Telemetry never blocks the happy path.
+  }
 
   // ── 5. Smoke test (non-fatal) ────────────────────────────────────────
   // The website confirms the key the moment the device-flow approval lands,
