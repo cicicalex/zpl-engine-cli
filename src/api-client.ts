@@ -281,15 +281,77 @@ export class ApiClient {
   }
 
   /**
-   * Optional account endpoint — may not exist yet on the backend.
-   * Commands should treat a network/404 error here as non-fatal and fall back to config-only data.
+   * Account endpoint — lives on ZPL Main (zeropointlogic.io), NOT on the
+   * engine. v1.1.7: switched from `engine.zeropointlogic.io/api/user/me`
+   * (which 404'd because the engine never shipped that route) to
+   * `zeropointlogic.io/api/user/me` (added 2026-05-12).
+   *
+   * The new endpoint combines:
+   *   - the user record (email, plan, role)
+   *   - the engine.usage_log SUM for the current calendar month
+   *   - the May 2026 promo tokensBonus
+   * and returns ONE consistent number per field so `zpl whoami` and
+   * `zpl quota` can render real values instead of "endpoint unavailable".
+   *
+   * Override with $ZPL_ACCOUNT_BASE_URL if you point at a staging copy.
+   * Bare network/404 errors stay non-fatal — commands fall back to
+   * config-only data so the CLI keeps working even when ZPL Main is down.
    */
-  async me(): Promise<{ email: string; plan: string; quota_used?: number; quota_limit?: number } | null> {
+  async me(): Promise<MeResponse | null> {
+    const accountBase =
+      process.env.ZPL_ACCOUNT_BASE_URL ??
+      // Default = ZPL Main, NOT the engine.
+      "https://zeropointlogic.io";
+
     try {
-      return await this.request("/api/user/me", { method: "GET" });
+      const url = `${accountBase.replace(/\/$/, "")}/api/user/me`;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "User-Agent": USER_AGENT,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.status === 401) throw new ApiAuthError();
+      if (!res.ok) return null;
+      const ct = res.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) return null;
+      return (await res.json()) as MeResponse;
     } catch (err) {
       if (err instanceof ApiAuthError) throw err;
       return null;
     }
   }
+}
+
+/** Shape returned by zeropointlogic.io/api/user/me (added 2026-05-12). */
+export interface MeResponse {
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+    plan: string;
+    plan_name: string;
+    created_at: string | null;
+  };
+  tokens: {
+    remaining: number;
+    used_this_month: number;
+    monthly_quota: number;
+    bonus_balance: number;
+    total_available_this_cycle: number;
+    percent_used: number;
+    source: "engine_log" | "user_table_fallback";
+  };
+  limits: {
+    max_d: number;
+    max_keys: number;
+    grpc_calls_per_minute: number;
+  };
+  pricing: {
+    monthly_usd: number;
+  };
 }

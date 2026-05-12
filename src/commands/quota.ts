@@ -4,12 +4,13 @@
  *
  * Designed to be the answer to the most common support question after a
  * couple of days of usage: "how much do I have left?". Cheap to call
- * (no engine compute, just reads /api/user/me) so users can check it
- * before kicking off a big batch.
+ * (no engine compute, just reads zeropointlogic.io/api/user/me) so users
+ * can check it before kicking off a big batch.
  *
- * v1.0.0 caveat: /api/user/me is the same endpoint whoami uses. If the
- * backend doesn't return quota_used / quota_limit yet, we degrade
- * gracefully — same as whoami.
+ * v1.1.7: now talks to the ZPL Main proxy at zeropointlogic.io which
+ * combines monthly plan quota + tokensBonus + engine usage_log. Pre-v1.1.7
+ * we hit engine.zeropointlogic.io (which never shipped /api/user/me) and
+ * always rendered "unavailable".
  */
 import chalk from "chalk";
 import Table from "cli-table3";
@@ -31,39 +32,29 @@ export async function cmdQuota(opts: QuotaOptions = {}): Promise<void> {
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
 
-  let plan = "free";
-  let used: number | null = null;
-  let limit: number | null = null;
-
+  let me;
   try {
-    const me = await client.me();
-    if (me) {
-      plan = me.plan ?? plan;
-      if (typeof me.quota_used === "number") used = me.quota_used;
-      if (typeof me.quota_limit === "number") limit = me.quota_limit;
-    }
+    me = await client.me();
   } catch (err) {
-    // Auth fail is terminal — bubble up to dieFormatted.
     if (err instanceof ApiAuthError) throw err;
-    // Anything else: fall through to "unavailable" output.
+    me = null;
   }
-
-  // Compute derived metrics if both used + limit are present.
-  const remaining = used !== null && limit !== null ? Math.max(0, limit - used) : null;
-  const percentUsed =
-    used !== null && limit !== null && limit > 0 ? Math.round((used / limit) * 100) : null;
 
   // ── JSON output ──────────────────────────────────────────────────────
   if (output === "json") {
     process.stdout.write(
       JSON.stringify(
         {
-          plan,
-          used,
-          limit,
-          remaining,
-          percent_used: percentUsed,
-          available: used !== null && limit !== null,
+          plan: me?.user.plan ?? "free",
+          plan_name: me?.user.plan_name ?? null,
+          used: me?.tokens.used_this_month ?? null,
+          monthly_quota: me?.tokens.monthly_quota ?? null,
+          bonus_balance: me?.tokens.bonus_balance ?? null,
+          remaining: me?.tokens.remaining ?? null,
+          total_available_this_cycle: me?.tokens.total_available_this_cycle ?? null,
+          percent_used: me?.tokens.percent_used ?? null,
+          available: me !== null,
+          source: me?.tokens.source ?? null,
         },
         null,
         2,
@@ -73,45 +64,49 @@ export async function cmdQuota(opts: QuotaOptions = {}): Promise<void> {
   }
 
   // ── Text output ──────────────────────────────────────────────────────
-  if (used === null || limit === null) {
+  if (!me) {
     process.stdout.write(
-      chalk.yellow(`Quota information unavailable on the engine.\n`) +
+      chalk.yellow(`Quota information unavailable.\n`) +
         chalk.gray(
-          `The /api/user/me endpoint did not return quota_used / quota_limit.\n` +
-            `Plan from config: ${chalk.bold(plan)}\n`,
+          `zeropointlogic.io/api/user/me did not respond. ` +
+            `Check connectivity, or try again later.\n`,
         ),
     );
     return;
   }
 
-  // Pick a colour based on how much headroom is left.
-  const usageColor =
-    percentUsed !== null && percentUsed >= 90
-      ? chalk.red
-      : percentUsed !== null && percentUsed >= 70
-        ? chalk.yellow
-        : chalk.green;
+  const t = me.tokens;
+  const percent = t.percent_used;
+  const usageColor = percent >= 90 ? chalk.red : percent >= 70 ? chalk.yellow : chalk.green;
 
   const table = new Table({
     head: [chalk.bold("Field"), chalk.bold("Value")],
     style: TABLE_STYLE,
   });
   table.push(
-    ["Plan", chalk.bold(plan)],
-    ["Used", `${used.toLocaleString()} tokens`],
-    ["Limit", `${limit.toLocaleString()} tokens`],
-    ["Remaining", usageColor.bold(`${(remaining ?? 0).toLocaleString()} tokens`)],
-    ["Used %", usageColor.bold(`${percentUsed}%`)],
+    ["Plan", chalk.bold(`${me.user.plan} (${me.user.plan_name})`)],
+    ["Used this month", `${t.used_this_month.toLocaleString()} tokens`],
+    ["Monthly quota", `${t.monthly_quota.toLocaleString()} tokens`],
+    ["Bonus balance", t.bonus_balance > 0 ? chalk.green(`${t.bonus_balance.toLocaleString()} tokens`) : "0"],
+    ["Remaining", usageColor.bold(`${t.remaining.toLocaleString()} tokens`)],
+    ["Cycle total available", `${t.total_available_this_cycle.toLocaleString()} tokens`],
+    ["Used %", usageColor.bold(`${percent}%`)],
   );
   process.stdout.write(table.toString() + "\n");
 
-  // Friendly nudge if user is running low.
-  if (percentUsed !== null && percentUsed >= 90) {
+  if (t.bonus_balance > 0) {
     process.stdout.write(
       "\n" +
-        chalk.yellow(
-          `You're close to the limit. Run \`zpl plans\` to see upgrade options.\n`,
+        chalk.gray(
+          `Note: bonus tokens (e.g. May 2026 promo, one-off packs) are consumed FIRST, then your monthly plan quota.\n`,
         ),
+    );
+  }
+
+  if (percent >= 90) {
+    process.stdout.write(
+      "\n" +
+        chalk.yellow(`You're close to the limit. Run \`zpl plans\` to see upgrade options.\n`),
     );
   }
 }

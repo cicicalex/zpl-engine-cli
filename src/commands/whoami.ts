@@ -11,8 +11,10 @@ export interface WhoamiOptions {
 /**
  * Show the logged-in identity, plan, and quota.
  *
- * v1.0.0 adds `--output json` for agent / scripting consumers — pre-v1 only
- * had a chalk-rendered table that was effectively unparseable from a script.
+ * v1.1.7: now talks to zeropointlogic.io/api/user/me (ZPL Main proxy),
+ * which combines monthly plan quota + tokensBonus + engine usage_log
+ * into a single shape. Pre-v1.1.7 we hit engine.zeropointlogic.io for
+ * this and got 404, so `Quota` always read "endpoint not available".
  */
 export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
   const output = (opts.output ?? "text").toLowerCase();
@@ -24,21 +26,8 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
 
-  let plan = "free";
-  let quotaUsed: number | null = null;
-  let quotaLimit: number | null = null;
-
-  // /api/user/me may not exist yet — fail gracefully.
-  try {
-    const me = await client.me();
-    if (me) {
-      plan = me.plan ?? plan;
-      if (typeof me.quota_used === "number") quotaUsed = me.quota_used;
-      if (typeof me.quota_limit === "number") quotaLimit = me.quota_limit;
-    }
-  } catch {
-    // Swallow; we'll display config-only data.
-  }
+  // Pull full account view from ZPL Main. Silent on failure.
+  const me = await client.me().catch(() => null);
 
   // Detect "from env" sentinel so JSON consumers can tell.
   const fromEnv = cfg.auth.created_at === new Date(0).toISOString();
@@ -47,13 +36,16 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
     process.stdout.write(
       JSON.stringify(
         {
-          email: cfg.auth.user_email,
-          plan,
+          email: me?.user.email ?? cfg.auth.user_email,
+          name: me?.user.name ?? null,
+          role: me?.user.role ?? null,
+          plan: me?.user.plan ?? "free",
+          plan_name: me?.user.plan_name ?? null,
           engine_url: cfg.engine.base_url,
           config_created: fromEnv ? null : cfg.auth.created_at,
           source: fromEnv ? "env" : "config-file",
-          quota_used: quotaUsed,
-          quota_limit: quotaLimit,
+          tokens: me?.tokens ?? null,
+          limits: me?.limits ?? null,
         },
         null,
         2,
@@ -64,18 +56,26 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
 
   const table = new Table({ head: [chalk.bold("Field"), chalk.bold("Value")], style: TABLE_STYLE });
   table.push(
-    ["Email", cfg.auth.user_email],
-    ["Plan", plan],
+    ["Email", me?.user.email ?? cfg.auth.user_email],
+    ["Plan", `${me?.user.plan ?? "free"}${me?.user.plan_name ? ` (${me.user.plan_name})` : ""}`],
     ["Engine", cfg.engine.base_url],
     ["Source", fromEnv ? chalk.yellow("ZPL_API_KEY env var") : "config file"],
   );
   if (!fromEnv) {
     table.push(["Config created", cfg.auth.created_at]);
   }
-  if (quotaUsed !== null && quotaLimit !== null) {
-    table.push(["Quota (today)", `${quotaUsed.toLocaleString()} / ${quotaLimit.toLocaleString()}`]);
+  if (me?.tokens) {
+    const { remaining, used_this_month, monthly_quota, bonus_balance } = me.tokens;
+    table.push(
+      ["Tokens remaining", chalk.cyan(remaining.toLocaleString())],
+      [
+        "  ↳ monthly quota",
+        `${used_this_month.toLocaleString()} / ${monthly_quota.toLocaleString()} used`,
+      ],
+      ["  ↳ bonus balance", bonus_balance > 0 ? chalk.green(bonus_balance.toLocaleString()) : "0"],
+    );
   } else {
-    table.push(["Quota", chalk.gray("(remote endpoint not available — try `zpl quota`)")]);
+    table.push(["Tokens", chalk.gray("(ZPL Main /api/user/me unreachable — try again later)")]);
   }
   process.stdout.write(table.toString() + "\n");
 }

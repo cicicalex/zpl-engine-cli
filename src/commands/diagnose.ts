@@ -142,17 +142,19 @@ export async function cmdDiagnose(): Promise<void> {
       const me = await client.me();
       if (me) {
         results.push({
-          name: "Engine auth",
+          name: "Account auth",
           status: "PASS",
-          detail: `Authenticated as ${me.email} (plan: ${me.plan})`,
+          detail:
+            `Authenticated as ${me.user.email} (plan: ${me.user.plan}, ` +
+            `${me.tokens.remaining.toLocaleString()} tokens remaining)`,
         });
       } else {
-        // /api/user/me may not exist on all backends.
+        // ZPL Main proxy unreachable — keep going, this is non-fatal.
         results.push({
-          name: "Engine auth",
+          name: "Account auth",
           status: "WARN",
-          detail: "Endpoint /api/user/me unavailable — cannot fully verify auth",
-          hint: "Try `zpl check` on a test file to confirm the key works.",
+          detail: "zeropointlogic.io/api/user/me unreachable — cannot fully verify auth",
+          hint: "Try `zpl check` on a short text to confirm the engine still works.",
         });
       }
     } catch (err) {
