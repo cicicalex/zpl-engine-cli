@@ -62,7 +62,7 @@ import {
 import { cmdLogs, type LogTypeFilter } from "./commands/logs.js";
 import { checkLatestVersion } from "./update-check.js";
 
-const VERSION = "1.1.7";
+const VERSION = "1.1.8";
 
 /**
  * Sanitise an arbitrary string before showing it to the user / writing to
