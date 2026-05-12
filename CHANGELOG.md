@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.4] — 2026-05-12
+
+Funnel finding from the 12.05 audit. Pre-fix: when the engine returned
+HTTP 403 with body "Token limit exceeded: X/Y used this month" (monthly
+free-tier exhaustion), `api-client.ts` fell through to
+`throw new ApiAuthError()` whose message reads
+`"API key invalid. Run zpl logout then zpl login."`
+
+An engaged user who burned 5,000 free-tier tokens was therefore told
+their key was invalid and to log out and back in. Pure user hostility
+— they had no way to know they needed to upgrade. Most users in that
+state silently churned.
+
+### Added
+
+- `ApiQuotaExhaustedError` — distinct from `ApiAuthError` and
+  `ApiQuotaError` (per-minute rate). Multi-line message with plan
+  ladder (Basic $10 → Pro $29 → GamePro $69 → Studio $149), direct
+  `/pricing` link, one-off token pack fallback, and a monthly reset
+  note. Exposes parsed `tokensUsed` / `tokensLimit` for callers.
+
+### Fixed
+
+- `api-client.ts` 403 handler now sniffs the response body for
+  `/token limit exceeded/i` **before** falling through to
+  `ApiAuthError`. Parses the `X/Y` numbers out of the engine response.
+- `index.ts` top-level `dieFormatted()` prints the new error in yellow
+  (not red) — the user's setup is fine, this is a billing prompt.
+
+Cascade complete: MCP v4.1.4, SDK v2.0 (TS + Python), CLI v1.1.4 all
+now surface the same upgrade nudge at the same moment in the user
+journey. Free-tier exhaustion = upgrade prompt at every entry point.
+
+---
+
 ## [1.1.3] — 2026-05-11
 
 Implements ADR 0002 (`zpl-engine-sdk/docs/adr/0002-x-zpl-client-headers.md`)
