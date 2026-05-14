@@ -26,7 +26,7 @@ We commit to:
   patch ships, unless you ask to remain anonymous.
 
 If you do not receive an acknowledgement within 5 business days, please
-re-send and CC `cicicalex20@gmail.com`.
+re-send to `security@zeropointlogic.io`.
 
 ## Scope
 
