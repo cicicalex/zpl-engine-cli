@@ -5,7 +5,19 @@
  * the schema is trivial (string scalars under three flat tables) and every
  * extra dep is extra surface area for `npx zpl-engine-cli login`.
  */
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, statSync, existsSync, unlinkSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+  statSync,
+  existsSync,
+  unlinkSync,
+  renameSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
 import { validateEngineUrl, DEFAULT_ENGINE_URL, EngineUrlError } from "./engine-url-validate.js";
@@ -64,7 +76,29 @@ export function writeConfig(cfg: ZplConfig): void {
     `\n` +
     `[defaults]\n` +
     `model = ${tomlString(cfg.defaults.model)}\n`;
-  writeFileSync(path, body, { encoding: "utf-8", mode: 0o600 });
+  // AUDIT 2026-05-14 (HIGH): write atomically via tmp + fsync + rename.
+  // Pre-fix `writeFileSync(path, body)` could leave a truncated file on
+  // disk if the process was killed mid-write (Ctrl-C, OOM, parent died).
+  // Next `zpl whoami` then read a half-formed config — and worse, a
+  // partially-written API key string sat there for any local attacker to
+  // read with looser perms than the final 0600 chmod was supposed to set.
+  // tmp+fsync+rename is POSIX-atomic for the path swap.
+  const tmpPath = path + ".tmp";
+  const fd = openSync(tmpPath, "w", 0o600);
+  try {
+    writeFileSync(fd, body, { encoding: "utf-8" });
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  // chmod tmp before rename (Windows ACL is set on the rename target, but
+  // POSIX honours the openSync mode so this is belt-and-suspenders).
+  try {
+    chmodSync(tmpPath, 0o600);
+  } catch {
+    // Windows NTFS: no-op
+  }
+  renameSync(tmpPath, path);
   try {
     chmodSync(path, 0o600);
   } catch {

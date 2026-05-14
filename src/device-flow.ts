@@ -59,12 +59,48 @@ function sleep(ms: number): Promise<void> {
 /**
  * Best-effort open a URL in the user's default browser. Shells out to
  * start/open/xdg-open so we don't need the `open` npm dep.
+ *
+ * AUDIT 2026-05-14 (HIGH): the Windows branch used `cmd /c start "" <url>`
+ * which lets cmd.exe interpret `&`, `|`, `^`, `>` in the URL as shell
+ * metacharacters. Pre-fix:
+ *   - Legitimate URL containing `&` (query separator) was truncated.
+ *   - A compromised CDN or MITM injecting `&calc.exe` after the legit URL
+ *     would launch arbitrary processes.
+ * Now: validate the URL is a real https:// URL with a known host before
+ * passing it to cmd, and use rundll32 which doesn't parse the URL through
+ * the shell — it goes straight to ShellExecute via the URL protocol
+ * handler.
  */
+const SAFE_HOST_SUFFIXES = ["zeropointlogic.io"];
+function isSafeUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:") return false;
+    return SAFE_HOST_SUFFIXES.some(
+      (base) => u.hostname === base || u.hostname.endsWith("." + base),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function openInBrowser(url: string): void {
+  if (!isSafeUrl(url)) {
+    // Refuse to launch anything for an unsafe URL — caller already prints
+    // it for manual paste, the user sees the URL but no process spawns.
+    return;
+  }
   try {
     const plat = platform();
     if (plat === "win32") {
-      spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+      // rundll32 url.dll,FileProtocolHandler bypasses cmd.exe parsing
+      // entirely. The URL is passed directly to ShellExecute, which
+      // treats it as a single argument to the registered handler.
+      spawn(
+        "rundll32",
+        ["url.dll,FileProtocolHandler", url],
+        { detached: true, stdio: "ignore" },
+      ).unref();
     } else if (plat === "darwin") {
       spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
     } else {
