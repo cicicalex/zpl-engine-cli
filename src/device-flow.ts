@@ -16,6 +16,64 @@ import { spawn } from "node:child_process";
 import { platform } from "node:os";
 import { USER_AGENT } from "./user-agent.js";
 
+/**
+ * Re-exec via `npx -y zpl-engine-cli@latest` and exit. Called when the
+ * backend returns 426 Upgrade Required. Stdio is inherited so the new
+ * wizard takes over the user's terminal seamlessly.
+ *
+ * Env override: ZPL_SKIP_AUTOUPGRADE=1 disables this and falls through
+ * to a manual upgrade instruction. Default is always to auto-promote.
+ *
+ * Forwards a conservative subset of the original argv (only known
+ * flags) to avoid argv injection from a hostile parent shell.
+ */
+async function reexecAsLatest(originalArgs: string[]): Promise<never> {
+  if (process.env.ZPL_SKIP_AUTOUPGRADE === "1") {
+    process.stderr.write(
+      "[autoupgrade] ZPL_SKIP_AUTOUPGRADE=1 set — refusing to self-upgrade.\n" +
+        "[autoupgrade] Run manually: npx -y zpl-engine-cli@latest setup\n",
+    );
+    process.exit(1);
+  }
+  // Forward only known subcommands/flags. Anything else is dropped.
+  const ALLOWED_FLAGS = new Set([
+    "--force", "--yes", "-y", "--help", "-h", "--version", "-v",
+  ]);
+  const ALLOWED_SUBCOMMANDS = new Set([
+    "setup", "login", "logout", "whoami", "compute", "plans", "quota",
+    "check", "diagnose", "consistency", "about",
+  ]);
+  const forwarded: string[] = [];
+  for (const a of originalArgs) {
+    if (ALLOWED_SUBCOMMANDS.has(a) || ALLOWED_FLAGS.has(a)) {
+      forwarded.push(a);
+    }
+  }
+  const cmd = platform() === "win32" ? "npx.cmd" : "npx";
+  const args = ["-y", "zpl-engine-cli@latest", ...forwarded];
+
+  await new Promise<void>((resolve) => {
+    const child = spawn(cmd, args, {
+      stdio: "inherit",
+      shell: platform() === "win32",
+    });
+    child.on("close", (code) => {
+      process.exit(typeof code === "number" ? code : 1);
+      resolve();
+    });
+    child.on("error", (err) => {
+      process.stderr.write(
+        `[autoupgrade] Failed to spawn npx: ${(err as Error).message}\n` +
+          `[autoupgrade] Run manually: npx -y zpl-engine-cli@latest setup\n`,
+      );
+      process.exit(1);
+      resolve();
+    });
+  });
+  // unreachable
+  process.exit(1);
+}
+
 export const DEFAULT_SITE = process.env.ZPL_SITE ?? "https://zeropointlogic.io";
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_MAX_INTERVAL_MS = 10_000;
@@ -119,6 +177,24 @@ export async function startDeviceFlow(site: string, deviceName: string): Promise
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
+    // Server-side force-update gate. If we're below the configured
+    // minimum, the backend returns 426 with the upgrade command.
+    // Re-exec via npx@latest so the user doesn't copy-paste anything.
+    if (res.status === 426) {
+      const body = (await res.json().catch(() => ({}))) as {
+        upgrade_command?: string;
+        minimum_version?: string;
+        current_version?: string;
+        message?: string;
+      };
+      process.stderr.write(
+        `\nzpl-engine-cli v${body.current_version ?? ""} is below the supported floor (v${body.minimum_version ?? ""}).\n`,
+      );
+      if (body.message) process.stderr.write(`${body.message}\n`);
+      process.stderr.write(`Auto-upgrading via ${body.upgrade_command ?? "npx -y zpl-engine-cli@latest"}…\n\n`);
+      await reexecAsLatest(process.argv.slice(2));
+      process.exit(1); // unreachable; safety net
+    }
     const body = await res.text().catch(() => "");
     throw new Error(`Could not start login (${res.status}). ${body.slice(0, 200)}`);
   }
