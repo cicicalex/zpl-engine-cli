@@ -61,8 +61,24 @@ import {
 } from "./commands/config.js";
 import { cmdLogs, type LogTypeFilter } from "./commands/logs.js";
 import { checkLatestVersion } from "./update-check.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
-const VERSION = "1.1.8";
+// Read version from package.json at runtime so a bump never goes stale.
+// Pre-fix this was hardcoded to "1.1.8" while package.json shipped 1.1.9 —
+// every command on the latest CLI printed a phantom "update available"
+// notice. Pinning to package.json removes the drift class entirely.
+const VERSION: string = (() => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    // dist/index.js → ../package.json
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 /**
  * Sanitise an arbitrary string before showing it to the user / writing to
