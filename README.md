@@ -148,4 +148,4 @@ scoring inside Claude Desktop / Cursor / Windsurf — same engine, same account.
 
 ## License
 
-MIT © Alex Cicic / Zero Point Logic
+MIT © Zero Point Logic

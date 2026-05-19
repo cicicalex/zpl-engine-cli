@@ -1,8 +1,8 @@
 {
   "name": "zpl-engine-cli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Terminal CLI for ZPL Engine — independent verification layer for AI output. Score files, clipboard, or stdin for bias / sycophancy / consistency. v1.1.6: fixed inverted-bias regression (20% → 93% match-human rate after sentiment.ts rewrite + negation handling), added stdin + --output json to `check`, file-batch mode to `consistency`, --lines mode to `diff`, file-watch mode to `watch`, and --with-config to `export` (aligns CLI with the /cli docs page). v1.1.x adds shell completion (bash/zsh/fish/PowerShell), HTTP_PROXY support, `zpl config` get/set/list/unset/edit, `zpl logs` audit log, on top of v1.0's memory-aware login, diagnose, repair, pipe (CI gate), about, and 20 regression-locked bug + security fixes.",
-  "author": "Alex Cicic <contact@zeropointlogic.io>",
+  "author": "Zero Point Logic <contact@zeropointlogic.io>",
   "license": "MIT",
   "type": "module",
   "bin": {
