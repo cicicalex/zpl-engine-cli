@@ -131,7 +131,7 @@ function buildManifest(): AboutManifest {
       "5,000 tokens/month, no credit card required. Sign up at zeropointlogic.io.",
     privacy: {
       data_sent_to_engine:
-        "Only the text/numbers you score (sentiment-distilled to a single bias number 0-1, plus a small dimension d). Your raw text is sent in the request body for scoring. The engine logs the request for billing purposes only — it is not used to train any model.",
+        "Your raw text NEVER leaves this machine. Sentiment analysis runs locally (src/sentiment.ts) and the only thing posted to the engine is the distilled triple {d, bias, samples} — a dimension, a single bias number 0-1, and a sample count. The engine logs that request for billing purposes only; it is not used to train any model.",
       data_stored_locally:
         "~/.zpl/config.toml (your API key, mode 0600 on POSIX) and ~/.zpl/history.json (one row per scored input — input is SHA-256 hashed BEFORE storage, so the raw text is never written to disk).",
       telemetry:

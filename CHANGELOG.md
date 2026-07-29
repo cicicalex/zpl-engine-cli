@@ -38,6 +38,15 @@ config, networking, or exit codes.
   with a note that `zpl config`'s five subcommands are not counted
   separately.
 
+### Fixed
+
+- **`zpl about` privacy claim was wrong in the alarming direction.** It said
+  "Your raw text is sent in the request body for scoring." It is not: the
+  sentiment pass runs locally and the request body contains only
+  `{d, bias, samples}` (verified against a local stub engine — the body on
+  the wire is `{"d":5,"bias":0.5,"samples":1000}`). Corrected to say the raw
+  text never leaves the machine.
+
 ### Added
 
 - `ain_status` key in the JSON output of `check` and `pipe`, carrying the
