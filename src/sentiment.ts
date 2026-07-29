@@ -6,16 +6,14 @@
  *   Pre-fix problem
  *     The previous version emitted a `combinedBias` derived from sentiment
  *     imbalance, structure, and "pure uniformity," then passed that value
- *     directly to the engine as the matrix bias parameter. But the engine's
- *     AIN curve is FLAT in [0.1, 0.9] (always ~0.85–0.95) and only dips
- *     sharply at extremes (<0.05 or >0.95). So our nominally biased text
- *     (combinedBias 0.6–0.8) landed in the engine's "safe middle" and came
- *     back with HIGHLY_NEUTRAL — the opposite of what we promised on the
- *     box.
+ *     directly to the engine as the matrix bias parameter. That mapping was
+ *     wrong: the engine's response is deliberately insensitive across most of
+ *     the input range and reacts only near the extremes, so nominally biased
+ *     text landed in the insensitive region and came back reported as neutral
+ *     — the opposite of what we promised on the box.
  *
- *     20-input brutal test (see /Dev/zpl-wizard-test/BRUTAL-CLI-TESTS.md):
- *     12 out of 15 non-edge inputs returned the inverted verdict. Sycophantic
- *     text scored AIN=99, balanced text scored AIN=0.
+ *     A 20-input adversarial pass confirmed it: the large majority of
+ *     non-edge inputs returned the inverted verdict.
  *
  *   Post-fix model
  *     Step 1: compute `imbalance` ∈ [0, 1] from regex matches. 0 = no
@@ -26,9 +24,10 @@
  *             vocab is one-sided.
  *     Step 3: map damped imbalance to engine bias using a quadratic squeeze:
  *               engineBias = 0.5 * (1 - imbalance)²
- *             so imbalance=0 → bias=0.5 (engine returns ~0.9 AIN, HIGH)
- *                imbalance=0.5 → bias=0.125 (engine returns ~0.75 AIN, MEDIUM)
- *                imbalance=1.0 → bias=0.0 → clamped to 0.01 (engine ~0.32, LOW)
+ *             Balanced text maps to the centre of the bias range; increasingly
+ *             one-sided text is pushed toward the low extreme, where the engine
+ *             is responsive. Bias is clamped away from 0 to stay inside the
+ *             accepted parameter range.
  *
  *   Word lists expanded
  *     Added the most common English balance markers ("but", "however",
@@ -142,9 +141,9 @@ export function analyzeSentiment(text: string): SentimentResult {
   imbalance = imbalance * (1 - neutralDampener * 0.5);
 
   // Map imbalance to engine bias param using a quadratic squeeze.
-  //   imbalance=0   → engineBias=0.5    (engine returns AIN ~0.9, HIGH neutral)
-  //   imbalance=0.5 → engineBias=0.125  (engine returns AIN ~0.75, MEDIUM)
-  //   imbalance=1.0 → engineBias=0.0 → clamped to 0.01 (engine returns AIN ~0.32, LOW)
+  //   imbalance=0   → engineBias=0.5    (centre of range)
+  //   imbalance=0.5 → engineBias=0.125
+  //   imbalance=1.0 → engineBias=0.0 → clamped to 0.01 (lowest accepted)
   // The quadratic is intentional: small imbalances should not move the
   // bias far from 0.5; only strong one-sidedness should push to extremes.
   const engineBias = clamp(0.5 * Math.pow(1 - imbalance, 2), 0.01, 0.5);

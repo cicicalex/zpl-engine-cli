@@ -35,7 +35,7 @@ export interface ConsistencyOptions {
  *   semantically-related prompts?
  *
  * Limits:
- *   --n capped at 20 (Alex: "maxim 20 de intrebari raspunde"). With file
+ *   --n capped at 20 (product decision: 20 questions is the answered maximum). With file
  *   mode you can effectively run 20 × num_prompts calls in one go.
  */
 

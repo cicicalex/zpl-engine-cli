@@ -138,7 +138,7 @@ export async function cmdLogin(opts: LoginOptions = {}): Promise<void> {
 
   // v1.1.5: fire-and-forget heartbeat ping so ZPL Main records this
   // install as "successfully paired" — distinct from "ever made a
-  // /compute call". Lets Alex see the npm-download → paired-and-active
+  // /compute call". Lets the operator see the npm-download → paired-and-active
   // funnel ratio in /admin/users. Silent on any failure (blocked
   // outbound, 429, proxy stripping Authorization).
   try {

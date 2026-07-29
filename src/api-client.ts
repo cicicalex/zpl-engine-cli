@@ -169,7 +169,7 @@ export class ApiClient {
       // structured client identity for engine telemetry. Independent of
       // User-Agent free text — middleware can reliably partition traffic
       // by X-ZPL-Client. Engine persists into usage_log.client_type /
-      // .client_version when E2 ships (Alex / Rust). Harmless until then.
+      // .client_version when the engine-side change ships. Harmless until then.
       "X-ZPL-Client": "cli",
       "X-ZPL-Client-Version": readPkgVersion(),
     };
