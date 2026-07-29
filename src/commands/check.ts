@@ -5,6 +5,7 @@ import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
 import { printDisclaimer } from "../disclaimer.js";
+import { ainPercent, fmtAin } from "../ain-scale.js";
 
 export interface CheckOptions {
   /** Output format. */
@@ -77,7 +78,8 @@ export async function runCheck(
 
   const { bias, d, positive, negative, neutral, sentences } = analyzeSentiment(text);
   const result = await client.compute({ d, bias, samples: 1000 });
-  const ain = Math.round(result.ain * 100);
+  // Percentage scale, decimals preserved — see src/ain-scale.ts.
+  const ain = ainPercent(result.ain);
   const verdict = verdictFor(ain);
 
   appendHistory({
@@ -94,6 +96,11 @@ export async function runCheck(
       JSON.stringify(
         {
           ain,
+          // `ain_status` is the engine's balance-quality enum. `status` is
+          // kept as a backwards-compatible alias for pre-1.2.2 consumers —
+          // it carries the SAME value, not the engine's stability-regime
+          // field (which this command does not surface).
+          ain_status: result.ain_status,
           status: result.ain_status,
           verdict,
           input_chars: text.length,
@@ -110,7 +117,7 @@ export async function runCheck(
 
   const color = statusColor(ain);
   process.stdout.write(`${chalk.bold(label)}  ${chalk.gray(`(${text.length} chars)`)}\n`);
-  process.stdout.write(`  AIN      ${color.bold(String(ain) + "/100")}  ${color(result.ain_status)}\n`);
+  process.stdout.write(`  AIN      ${color.bold(fmtAin(ain) + "/100")}  ${color(result.ain_status)}\n`);
   process.stdout.write(`  Verdict  ${color(verdict)}\n`);
   process.stdout.write(
     `  Signal   ${chalk.gray(`pos=${positive} neg=${negative} neutral=${neutral} sentences=${sentences}`)}\n`,

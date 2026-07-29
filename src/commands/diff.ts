@@ -5,6 +5,7 @@ import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
 import { printDisclaimer } from "../disclaimer.js";
+import { ainPercent, fmtAin, fmtAinDelta } from "../ain-scale.js";
 
 export interface DiffOptions {
   /** Score line-by-line instead of whole-file (bug #11 alignment with /cli docs). */
@@ -16,7 +17,8 @@ export interface DiffOptions {
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
   const res = await client.compute({ d, bias, samples: 1000 });
-  return { ain: Math.round(res.ain * 100), status: res.ain_status, tokens: res.tokens_used };
+  // Percentage scale, decimals preserved — see src/ain-scale.ts.
+  return { ain: ainPercent(res.ain), status: res.ain_status, tokens: res.tokens_used };
 }
 
 function labelDelta(delta: number): { label: string; color: ChalkInstance } {
@@ -77,13 +79,13 @@ async function runLineDiff(
       continue;
     }
     totalTokens += sBefore.tokens + sAfter.tokens;
-    const delta = sAfter.ain - sBefore.ain;
+    const delta = Math.round((sAfter.ain - sBefore.ain) * 100) / 100;
     deltas.push(delta);
     const { label, color } = labelDelta(delta);
     if (label !== "unchanged") changed++;
     const preview = aft.length > 60 ? aft.slice(0, 60) + "..." : aft;
     process.stdout.write(
-      `  L${String(i + 1).padStart(2, " ")}  ${color(label.padEnd(9))}  ${color((delta >= 0 ? "+" : "") + delta)} AIN  ${chalk.gray(preview)}\n`,
+      `  L${String(i + 1).padStart(2, " ")}  ${color(label.padEnd(9))}  ${color(fmtAinDelta(delta))} AIN  ${chalk.gray(preview)}\n`,
     );
   }
   const meanDelta = deltas.length > 0 ? deltas.reduce((a, b) => a + b, 0) / deltas.length : 0;
@@ -111,13 +113,13 @@ export async function cmdDiff(
     process.stdout.write(
       `\n${chalk.bold("Summary")}\n` +
         `  Changed lines: ${result.changedLines}\n` +
-        `  Mean delta:    ${color((result.meanDelta >= 0 ? "+" : "") + result.meanDelta.toFixed(1))} AIN (${color(label)})\n` +
+        `  Mean delta:    ${color(fmtAinDelta(result.meanDelta))} AIN (${color(label)})\n` +
         `  Tokens:        ${result.totalTokens}\n`,
     );
     appendHistory({
       command: "diff-lines",
       input: `${before}::${after}`,
-      score: Math.round(result.meanDelta),
+      score: Math.round(result.meanDelta * 100) / 100,
       status: label,
       tokens: result.totalTokens,
     });
@@ -130,13 +132,13 @@ export async function cmdDiff(
     score(client, tBefore),
     score(client, tAfter),
   ]);
-  const delta = sAfter.ain - sBefore.ain;
+  const delta = Math.round((sAfter.ain - sBefore.ain) * 100) / 100;
   const { label, color } = labelDelta(delta);
 
-  process.stdout.write(`${chalk.bold("before")} (${before}): AIN ${sBefore.ain}/100  ${chalk.gray(sBefore.status)}\n`);
-  process.stdout.write(`${chalk.bold("after ")} (${after}): AIN ${sAfter.ain}/100  ${chalk.gray(sAfter.status)}\n`);
+  process.stdout.write(`${chalk.bold("before")} (${before}): AIN ${fmtAin(sBefore.ain)}/100  ${chalk.gray(sBefore.status)}\n`);
+  process.stdout.write(`${chalk.bold("after ")} (${after}): AIN ${fmtAin(sAfter.ain)}/100  ${chalk.gray(sAfter.status)}\n`);
   process.stdout.write(
-    `Result: ${color.bold(label)}  ${color((delta >= 0 ? "+" : "") + delta + " AIN")}\n`,
+    `Result: ${color.bold(label)}  ${color(fmtAinDelta(delta) + " AIN")}\n`,
   );
   process.stdout.write(
     chalk.gray(`Tip: add --lines to score paragraph-by-paragraph and locate the drift.\n`),

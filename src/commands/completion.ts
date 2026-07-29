@@ -10,8 +10,9 @@
  *
  * We hand-roll the scripts (rather than rely on commander.js's nascent
  * completion support) so we can ship one stable contract — the same set of
- * subcommands and flags appears in every shell, generated from a single
- * source of truth: COMMANDS in src/commands-meta.ts.
+ * subcommands and flags appears in every shell, generated from the COMMANDS
+ * table below. (An earlier comment pointed at `src/commands-meta.ts`, which
+ * does not exist — the table has always lived in this file.)
  *
  * Each shell's script:
  *   - Lists subcommands as the first-position completions

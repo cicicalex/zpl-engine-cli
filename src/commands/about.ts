@@ -15,8 +15,14 @@ interface AboutManifest {
   what_is_zpl: string;
   what_does_the_cli_do: string;
   why_use_cli_over_mcp: string;
+  command_count: number;
   commands: { name: string; purpose: string }[];
-  scoring: { range: string; bands: { score: string; meaning: string }[] };
+  scoring: {
+    range: string;
+    engine_scale: string;
+    bands_are: string;
+    bands: { score: string; meaning: string }[];
+  };
   links: { docs: string; repo: string; npm: string; engine_status: string };
   free_plan: string;
   privacy: {
@@ -43,6 +49,38 @@ function readVersion(): string {
   }
 }
 
+/**
+ * Every top-level command registered in src/index.ts, in registration order.
+ *
+ * Keep this list in sync with `program.command(...)` there — `command_count`
+ * is derived from it, so there is exactly one number to maintain and no way
+ * for the manifest to advertise a count that disagrees with the list.
+ * `config` is one command with five subcommands (get/set/unset/list/edit);
+ * they are not counted separately.
+ */
+const COMMANDS: { name: string; purpose: string }[] = [
+  { name: "login", purpose: "Device-flow login (memory-aware: skips if already logged in)" },
+  { name: "logout", purpose: "Remove local credentials" },
+  { name: "whoami", purpose: "Show logged-in user, plan, and quota" },
+  { name: "diagnose", purpose: "Health check: config + key + engine + auth" },
+  { name: "repair", purpose: "Wipe config + auto re-login (with backup/restore)" },
+  { name: "check [file]", purpose: "Score a file — or stdin when no file is given" },
+  { name: "watch [file]", purpose: "Score on every clipboard paste, or on every save of <file>" },
+  { name: "consistency <q>", purpose: "Probe engine determinism over N identical calls" },
+  { name: "compare <a> <b>", purpose: "Score two files head-to-head" },
+  { name: "diff <before> <after>", purpose: "Semantic delta: improved/worsened/unchanged" },
+  { name: "history", purpose: "Show last 20 scored runs (input is hashed for privacy)" },
+  { name: "pipe", purpose: "Score stdin (Unix-style); --threshold for CI gates" },
+  { name: "about", purpose: "This manifest — text or JSON" },
+  { name: "quota", purpose: "Tokens used and remaining this month" },
+  { name: "plans", purpose: "Catalogue of plans with monthly quotas and prices" },
+  { name: "export <format>", purpose: "Export local history as json / csv / markdown" },
+  { name: "update", purpose: "Check for a newer npm version (--apply installs it)" },
+  { name: "completion <shell>", purpose: "Emit a bash/zsh/fish/powershell completion script" },
+  { name: "config", purpose: "get / set / unset / list / edit ~/.zpl/config.toml" },
+  { name: "logs", purpose: "Recent CLI activity from the local log" },
+];
+
 function buildManifest(): AboutManifest {
   return {
     name: "zpl-engine-cli",
@@ -50,9 +88,10 @@ function buildManifest(): AboutManifest {
     what_is_zpl:
       "ZPL (Zero Point Logic) is a mathematical stability and bias engine. " +
       "Given any text, dataset, or distribution, it returns an AIN " +
-      "(AI Neutrality Index) score from 0 to 100 indicating how balanced or " +
-      "biased the input is. The scoring formula is published in a Zenodo DOI " +
-      "and produces deterministic, reproducible results.",
+      "(AI Neutrality Index) on a 0.0–1.0 scale indicating how balanced or " +
+      "biased the input is; this CLI presents it as a percentage. The " +
+      "scoring formula is published in a Zenodo DOI and produces " +
+      "deterministic, reproducible results.",
     what_does_the_cli_do:
       "Score files, clipboard pastes, or piped stdin for bias / neutrality / " +
       "sycophancy. Useful as a CI gate (block AI-generated content below a " +
@@ -62,27 +101,24 @@ function buildManifest(): AboutManifest {
       "to look better (observer effect). The CLI runs as a separate process " +
       "AFTER the AI has produced its output — the AI never sees the score, " +
       "so the result is independent verification rather than self-report.",
-    commands: [
-      { name: "login", purpose: "Device-flow login (memory-aware: skips if already logged in)" },
-      { name: "logout", purpose: "Remove local credentials" },
-      { name: "whoami", purpose: "Show logged-in user, plan, and quota" },
-      { name: "diagnose", purpose: "Health check: config + key + engine + auth" },
-      { name: "repair", purpose: "Wipe config + auto re-login (with backup/restore)" },
-      { name: "check <file>", purpose: "Score a single file for bias / neutrality" },
-      { name: "pipe", purpose: "Score stdin (Unix-style); --threshold for CI gates" },
-      { name: "watch", purpose: "Score every new clipboard paste in real time" },
-      { name: "consistency <q>", purpose: "Probe engine determinism over N identical calls" },
-      { name: "compare <a> <b>", purpose: "Score two files head-to-head" },
-      { name: "diff <before> <after>", purpose: "Semantic delta: improved/worsened/unchanged" },
-      { name: "history", purpose: "Show last 20 scored runs (input is hashed for privacy)" },
-    ],
+    command_count: COMMANDS.length,
+    commands: COMMANDS,
     scoring: {
-      range: "0–100, integer",
+      range:
+        "0.00–100.00. The CLI reports the engine's AIN multiplied by 100 and " +
+        "keeps 2 decimals — it is NOT rounded to a whole number.",
+      engine_scale:
+        "The engine itself returns `ain` on a 0.0–1.0 scale. Percentage is a " +
+        "presentation choice made by this CLI, not a different measurement.",
+      bands_are:
+        "CLI verdict bands (the `verdict` field). They are NOT the engine's " +
+        "`ain_status` enum, which has its own thresholds and is passed " +
+        "through unmodified in the `ain_status` field.",
       bands: [
-        { score: "80–100", meaning: "highly balanced, trustworthy" },
-        { score: "60–79", meaning: "moderately balanced" },
-        { score: "40–59", meaning: "noticeable bias" },
-        { score: "0–39", meaning: "heavily biased" },
+        { score: ">= 80", meaning: "highly balanced, trustworthy" },
+        { score: "60 to <80", meaning: "moderately balanced" },
+        { score: "40 to <60", meaning: "noticeable bias" },
+        { score: "< 40", meaning: "heavily biased" },
       ],
     },
     links: {
@@ -143,15 +179,20 @@ export async function cmdAbout(opts: AboutOptions = {}): Promise<void> {
   w(chalk.bold("Why CLI over MCP?"));
   w("  " + m.why_use_cli_over_mcp);
   w("");
-  w(chalk.bold("Commands:"));
+  w(chalk.bold(`Commands (${m.command_count}):`));
   for (const c of m.commands) {
     w(`  ${chalk.cyan(c.name.padEnd(22))}  ${chalk.gray(c.purpose)}`);
   }
   w("");
   w(chalk.bold("AIN scoring:"));
+  w(`  ${chalk.gray(m.scoring.range)}`);
+  w(`  ${chalk.gray(m.scoring.engine_scale)}`);
+  w("");
+  w(chalk.bold("Verdict bands:"));
   for (const b of m.scoring.bands) {
-    w(`  ${chalk.cyan(b.score.padEnd(8))}  ${chalk.gray(b.meaning)}`);
+    w(`  ${chalk.cyan(b.score.padEnd(10))}  ${chalk.gray(b.meaning)}`);
   }
+  w(`  ${chalk.gray(m.scoring.bands_are)}`);
   w("");
   w(chalk.bold("Privacy:"));
   w(`  ${chalk.gray("Data sent:")}     ${m.privacy.data_sent_to_engine}`);

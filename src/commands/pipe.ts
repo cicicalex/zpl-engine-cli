@@ -39,6 +39,7 @@ import {
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { printDisclaimer } from "../disclaimer.js";
+import { ainPercent, fmtAin } from "../ain-scale.js";
 
 export interface PipeOptions {
   /** Exit 1 if AIN < threshold. 1-100. */
@@ -139,7 +140,8 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
     process.exit(3);
   }
 
-  const ain = Math.round(res.ain * 100);
+  // Percentage scale, decimals preserved — see src/ain-scale.ts.
+  const ain = ainPercent(res.ain);
 
   // ── Persist (history) ────────────────────────────────────────────────
   appendHistory({
@@ -158,6 +160,10 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
       JSON.stringify(
         {
           ain,
+          // `ain_status` is the engine's balance-quality enum. `status` is
+          // kept as a backwards-compatible alias for pre-1.2.2 consumers —
+          // same value, NOT the engine's stability-regime field.
+          ain_status: res.ain_status,
           status: res.ain_status,
           threshold,
           passed,
@@ -174,8 +180,8 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
     const verdict = passed ? "PASS" : "FAIL";
     const color = passed ? chalk.green : chalk.red;
     const line = threshold !== null
-      ? `AIN=${ain}/100 status=${res.ain_status} threshold=${threshold} verdict=${verdict} tokens=${res.tokens_used}`
-      : `AIN=${ain}/100 status=${res.ain_status} tokens=${res.tokens_used}`;
+      ? `AIN=${fmtAin(ain)}/100 ain_status=${res.ain_status} threshold=${threshold} verdict=${verdict} tokens=${res.tokens_used}`
+      : `AIN=${fmtAin(ain)}/100 ain_status=${res.ain_status} tokens=${res.tokens_used}`;
     process.stdout.write(color(line) + "\n");
     // Disclaimer only in text mode — JSON consumers parse the output.
     printDisclaimer();

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+Alignment pass against the numeric contract. No behaviour change to auth,
+config, networking, or exit codes.
+
+### Changed
+
+- **AIN precision is no longer thrown away.** Every command scored with
+  `Math.round(ain * 100)`, collapsing the engine's 0.0–1.0 value to a whole
+  number. Scores are now presented as a percentage with two decimals
+  (`93.24`, not `93`) via the new `src/ain-scale.ts`. This matters most for
+  `zpl consistency`, whose entire job is detecting drift — integer rounding
+  made any drift under one point invisible, so the command reported
+  `✓ DETERMINISTIC` for runs it had not actually verified. Affects `check`,
+  `pipe`, `compare`, `diff`, `watch`, `consistency`, and the `score` column
+  in `~/.zpl/history.json`.
+- **`zpl pipe` text output** now labels the engine field as
+  `ain_status=` instead of `status=`. Scripts grepping for `status=` need
+  updating; JSON output keeps `status` as an alias (see below).
+- **`zpl about`** describes the scale honestly: `range` was
+  `"0-100, integer"`, which no longer matched what is returned. The manifest
+  now states the 0.00–100.00 percentage form, notes that the engine's own
+  scale is 0.0–1.0, and marks the four bands as the *CLI's* verdict bands
+  rather than the engine's `ain_status` enum.
+- **`zpl about` command list** was 12 entries out of 20 registered commands.
+  It now lists all 20 and exposes `command_count`, derived from the same
+  list so the number cannot drift from the list.
+- **README** said "Commands (17 total)" while listing 20. Corrected to 20,
+  with a note that `zpl config`'s five subcommands are not counted
+  separately.
+
+### Added
+
+- `ain_status` key in the JSON output of `check` and `pipe`, carrying the
+  engine's balance-quality enum. The existing `status` key is kept as a
+  backwards-compatible alias with the same value; new scripts should read
+  `ain_status`. The engine's separate stability-regime field is still not
+  surfaced by the CLI.
+- README section "Reading the score" — the 0.0–1.0 vs percentage
+  distinction, and the difference between `ain_status` and the CLI's own
+  `verdict`.
+
+---
+
 ## [1.1.4] — 2026-05-12
 
 Funnel finding from the 12.05 audit. Pre-fix: when the engine returned

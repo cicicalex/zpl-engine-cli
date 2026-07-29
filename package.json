@@ -15,7 +15,7 @@
     "build": "tsc",
     "dev": "node --import tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/api-key-format.test.mjs test/cloudflare-error.test.mjs test/config-toml.test.mjs test/sanitiser.test.mjs test/file-utils.test.mjs test/export.test.mjs test/plans.test.mjs test/engine-url-validate.test.mjs"
+    "test": "npm run build && node --test test/api-key-format.test.mjs test/cloudflare-error.test.mjs test/config-toml.test.mjs test/sanitiser.test.mjs test/file-utils.test.mjs test/export.test.mjs test/plans.test.mjs test/engine-url-validate.test.mjs test/ain-scale.test.mjs"
   },
   "keywords": [
     "zpl",

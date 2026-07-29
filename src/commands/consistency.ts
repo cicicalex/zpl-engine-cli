@@ -5,6 +5,7 @@ import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { printDisclaimer } from "../disclaimer.js";
+import { ainPercent, fmtAin } from "../ain-scale.js";
 
 export interface ConsistencyOptions {
   /** Number of passes (string from commander, parsed here). */
@@ -157,11 +158,13 @@ async function runOneProbe(
   for (let i = 0; i < n; i++) {
     try {
       const res = await client.compute({ d, bias, samples: 1000 });
-      const ain = Math.round(res.ain * 100);
+      // Decimals preserved on purpose: this command exists to detect drift,
+      // and integer rounding would hide anything under a full point.
+      const ain = ainPercent(res.ain);
       scores.push(ain);
       tokens.push(res.tokens_used);
       process.stdout.write(
-        `  Pass ${i + 1}/${n}: AIN ${chalk.cyan(String(ain))}  tokens=${chalk.gray(String(res.tokens_used))}\n`,
+        `  Pass ${i + 1}/${n}: AIN ${chalk.cyan(fmtAin(ain))}  tokens=${chalk.gray(String(res.tokens_used))}\n`,
       );
     } catch (err) {
       if (err instanceof ApiAuthError || err instanceof ApiCloudflareError) throw err;
@@ -289,7 +292,11 @@ export async function cmdConsistency(
     appendHistory({
       command: "consistency-batch",
       input: `${filePath} (${prompts.length} prompts)`,
-      score: Math.round(allScoresAcrossPrompts.reduce((a, b) => a + b, 0) / Math.max(allScoresAcrossPrompts.length, 1)),
+      score:
+        Math.round(
+          (allScoresAcrossPrompts.reduce((a, b) => a + b, 0) /
+            Math.max(allScoresAcrossPrompts.length, 1)) * 100,
+        ) / 100,
       status: "BATCH",
       tokens: totalTokens,
     });
@@ -320,7 +327,10 @@ export async function cmdConsistency(
   appendHistory({
     command: "consistency",
     input: inputArg,
-    score: scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0,
+    score:
+      scores.length > 0
+        ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
+        : 0,
     status: scores.length >= 2 && new Set(scores).size === 1 ? "DETERMINISTIC" : "DRIFT",
     tokens: tokens.reduce((a, b) => a + b, 0),
   });

@@ -40,7 +40,13 @@ claude "summarise the report" | zpl pipe --threshold 70
 zpl completion bash >> ~/.bashrc   # then: source ~/.bashrc
 ```
 
-## Commands (17 total)
+## Commands (20 total)
+
+Twenty top-level commands, counted from `src/index.ts`. `zpl config` is one of
+them and has five subcommands (`get` / `set` / `unset` / `list` / `edit`) that
+are not counted separately. `zpl about --output json` reports the same number
+in its `command_count` field, derived from the same list — if the two ever
+disagree, the code is right.
 
 ### Authentication & maintenance
 
@@ -93,6 +99,26 @@ zpl completion bash >> ~/.bashrc   # then: source ~/.bashrc
 |---|---|
 | `zpl --help`, `zpl <command> --help` | Per-command help via commander. |
 | `zpl --version` | Print version and exit. |
+
+## Reading the score
+
+The engine returns `ain` on a **0.0 – 1.0** scale. The CLI presents it as a
+percentage (×100) and **keeps two decimals** — it does not round to a whole
+number, because the product's claim is determinism and reproducibility, and an
+integer would hide any drift smaller than a full point. So `zpl check` prints
+`AIN 93.24/100`, and `--output json` emits `"ain": 93.24`.
+
+Two different fields are easy to confuse — they are not the same thing:
+
+| Field | What it means |
+|---|---|
+| `ain_status` | The engine's **balance-quality** enum, passed through unmodified. |
+| `verdict` | The **CLI's own** four-way band (`highly balanced` / `moderately balanced` / `noticeable bias` / `heavily biased`), computed from the percentage. Not an engine field. |
+
+In `check --output json` and `pipe --output json` the key `status` is a
+backwards-compatible alias of `ain_status` and carries the same value. Prefer
+`ain_status` in new scripts. The engine's separate stability-regime field is
+not surfaced by the CLI.
 
 ## Environment variables
 

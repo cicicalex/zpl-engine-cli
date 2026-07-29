@@ -6,6 +6,7 @@ import { requireConfig } from "../config.js";
 import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
+import { ainPercent, fmtAin } from "../ain-scale.js";
 
 export interface WatchOptions {
   /** Force clipboard mode (default if no <file> given). */
@@ -34,12 +35,13 @@ async function scoreAndPrint(
   try {
     const { bias, d } = analyzeSentiment(text);
     const res = await client.compute({ d, bias, samples: 1000 });
-    const ain = Math.round(res.ain * 100);
+    // Percentage scale, decimals preserved — see src/ain-scale.ts.
+    const ain = ainPercent(res.ain);
     const color = statusColor(ain);
     const ts = new Date().toISOString().slice(11, 19);
     const preview = text.replace(/\s+/g, " ").slice(0, 60);
     process.stdout.write(
-      `[${chalk.gray(ts)}] ${chalk.gray(source.padEnd(20))} ${color.bold("AIN " + ain)} ${color(res.ain_status)} ${chalk.gray("— " + preview + (text.length > 60 ? "…" : ""))}\n`,
+      `[${chalk.gray(ts)}] ${chalk.gray(source.padEnd(20))} ${color.bold("AIN " + fmtAin(ain))} ${color(res.ain_status)} ${chalk.gray("— " + preview + (text.length > 60 ? "…" : ""))}\n`,
     );
     appendHistory({
       command,

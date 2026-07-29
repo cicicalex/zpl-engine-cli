@@ -7,12 +7,14 @@ import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
 import { TABLE_STYLE } from "../table-style.js";
 import { printDisclaimer } from "../disclaimer.js";
+import { ainPercent, fmtAin, fmtAinDelta } from "../ain-scale.js";
 
 async function score(client: ApiClient, text: string) {
   const { bias, d } = analyzeSentiment(text);
   const res = await client.compute({ d, bias, samples: 1000 });
   return {
-    ain: Math.round(res.ain * 100),
+    // Percentage scale, decimals preserved — see src/ain-scale.ts.
+    ain: ainPercent(res.ain),
     status: res.ain_status,
     tokens: res.tokens_used,
   };
@@ -28,20 +30,21 @@ export async function cmdCompare(a: string, b: string): Promise<void> {
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
 
   const [sA, sB] = await Promise.all([score(client, textA), score(client, textB)]);
-  const delta = sB.ain - sA.ain;
+  // Round the subtraction itself (float noise), not the AIN values.
+  const delta = Math.round((sB.ain - sA.ain) * 100) / 100;
   const deltaColor = delta > 0 ? chalk.green : delta < 0 ? chalk.red : chalk.gray;
 
   const table = new Table({
-    head: [chalk.bold("File"), chalk.bold("AIN"), chalk.bold("Status"), chalk.bold("Tokens")],
+    head: [chalk.bold("File"), chalk.bold("AIN"), chalk.bold("AIN status"), chalk.bold("Tokens")],
     style: TABLE_STYLE,
   });
   table.push(
-    [a, String(sA.ain), sA.status, String(sA.tokens)],
-    [b, String(sB.ain), sB.status, String(sB.tokens)],
+    [a, fmtAin(sA.ain), sA.status, String(sA.tokens)],
+    [b, fmtAin(sB.ain), sB.status, String(sB.tokens)],
   );
   process.stdout.write(table.toString() + "\n");
   process.stdout.write(
-    `Delta (B - A): ${deltaColor.bold((delta >= 0 ? "+" : "") + delta)} AIN\n`,
+    `Delta (B - A): ${deltaColor.bold(fmtAinDelta(delta))} AIN\n`,
   );
 
   appendHistory({
