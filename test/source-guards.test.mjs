@@ -71,6 +71,24 @@ async function scan(pattern) {
   return offenders;
 }
 
+
+/**
+ * AUDIT 2026-07-30: every guard below walks src/ and asserts that the list
+ * of offending lines is empty. If src/ were renamed, moved, or partially
+ * checked out, that list would be empty because nothing was read — and all
+ * of them would report green while checking nothing at all.
+ *
+ * A test that cannot fail is worse than no test, because someone leans on
+ * it. This one fails first and says why.
+ */
+test("the source tree is actually being read", async () => {
+  const files = await tsFiles(SRC);
+  assert.ok(
+    files.length > 0,
+    `no source files found under ${SRC} — every guard below would pass vacuously`,
+  );
+});
+
 test("no command rounds an AIN value to a whole percent", async () => {
   const offenders = await scan(INT_ROUNDING);
   assert.deepEqual(offenders, [], `AIN precision lost:\n${offenders.join("\n")}`);
