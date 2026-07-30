@@ -7,17 +7,25 @@
  *   it does NOT understand sarcasm, complex negation chains ("absolutely not
  *   never"), factual errors, or context that requires world knowledge.
  *
- *   Realistic accuracy on typical AI-generated text is ~85-90% relative to
- *   human intuition (measured across our internal 20-input brutal test set).
- *   So treat AIN as ONE signal — pair it with a manual review or an
- *   LLM-based judge (`zpl_sycophancy_score` MCP tool) for high-stakes
- *   decisions.
+ *   Treat AIN as ONE signal — pair it with a manual review or an LLM-based
+ *   judge (`zpl_sycophancy_score` MCP tool) for high-stakes decisions.
  *
- *   Pre-v1.1.6 the CLI gave the inverse answer ~80% of the time. v1.1.6
- *   re-tuned the sentiment-to-matrix mapping and added negation handling
- *   (see src/sentiment.ts). Failure rate dropped to ~7% on the same test
- *   set, but the remaining 7% lives in genuinely ambiguous text (triple
- *   negation, sarcasm, irony) that regex cannot resolve.
+ *   Pre-v1.1.6 the CLI returned the inverse verdict on the large majority
+ *   of non-edge inputs. v1.1.6 re-tuned the sentiment-to-matrix mapping and
+ *   added negation handling (see src/sentiment.ts); the adversarial pass
+ *   that caught the inversion now passes on all but the genuinely ambiguous
+ *   cases — triple negation, sarcasm, irony — which regex cannot resolve.
+ *
+ *   AUDIT 2026-07-30: this block previously quoted "~85-90% accuracy" and a
+ *   "~7% failure rate", both attributed to a 20-input test set. Twenty
+ *   samples cannot support either figure — the confidence interval on an
+ *   87% estimate at n=20 is roughly ±15 points, and 7% is finer than the 5%
+ *   granularity a 20-item set can even express. The numbers were removed
+ *   rather than restated: they ship in a public package, and an accuracy
+ *   claim that collapses under the first competent question costs more than
+ *   having no number at all. The qualitative finding they came from — the
+ *   pre-fix inversion, and where the residual failures live — is real and
+ *   is kept.
  *
  * Visibility rules:
  *   - Always show in `text` output (single line at the bottom, gray).
