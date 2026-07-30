@@ -1,6 +1,8 @@
 import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
-import { ApiClient } from "../api-client.js";
+import {
+  ApiClient, ApiAuthError, ApiCloudflareError, ApiQuotaExhaustedError,
+} from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
@@ -51,7 +53,15 @@ async function runLineDiff(
   textBefore: string,
   textAfter: string,
   maxLines: number,
-): Promise<{ totalTokens: number; changedLines: number; meanDelta: number }> {
+): Promise<{
+  totalTokens: number;
+  changedLines: number;
+  meanDelta: number;
+  /** Pairs that produced a delta. A mean over zero of these is not a reading. */
+  scored: number;
+  /** Pairs the engine could not score. */
+  failed: number;
+}> {
   const linesBefore = textBefore.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const linesAfter = textAfter.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const pairCount = Math.min(linesBefore.length, linesAfter.length, maxLines);
@@ -62,6 +72,9 @@ async function runLineDiff(
 
   let totalTokens = 0;
   let changed = 0;
+  // Pairs the engine could not score. Counted so the summary can say how much
+  // of the diff actually ran, instead of averaging over whatever survived.
+  let failed = 0;
   const deltas: number[] = [];
   for (let i = 0; i < pairCount; i++) {
     const bef = linesBefore[i];
@@ -75,6 +88,25 @@ async function runLineDiff(
     try {
       [sBefore, sAfter] = await Promise.all([score(client, bef), score(client, aft)]);
     } catch (err) {
+      // AUDIT 2026-07-30: this caught everything and carried on, including the
+      // errors the API client re-throws precisely because retrying them is
+      // pointless — a rejected key, an exhausted quota, a Cloudflare block.
+      // With every pair failing, `deltas` stayed empty, the mean collapsed to
+      // 0, and the command printed "Mean delta: +0.00 AIN (unchanged)" and
+      // exited 0. A total engine outage was indistinguishable from a clean
+      // run, and appendHistory recorded the fabricated clean row.
+      //
+      // The same command's whole-file path lets these reach dieFormatted and
+      // fails properly, so one command reported opposite outcomes for the same
+      // failure depending on a flag.
+      if (
+        err instanceof ApiAuthError ||
+        err instanceof ApiCloudflareError ||
+        err instanceof ApiQuotaExhaustedError
+      ) {
+        throw err;
+      }
+      failed++;
       process.stderr.write(chalk.red(`  L${i + 1}: failed (${(err as Error).message})\n`));
       continue;
     }
@@ -89,7 +121,7 @@ async function runLineDiff(
     );
   }
   const meanDelta = deltas.length > 0 ? deltas.reduce((a, b) => a + b, 0) / deltas.length : 0;
-  return { totalTokens, changedLines: changed, meanDelta };
+  return { totalTokens, changedLines: changed, meanDelta, scored: deltas.length, failed };
 }
 
 export async function cmdDiff(
@@ -112,10 +144,27 @@ export async function cmdDiff(
     const { label, color } = labelDelta(result.meanDelta);
     process.stdout.write(
       `\n${chalk.bold("Summary")}\n` +
+        `  Scored lines:  ${result.scored} of ${result.scored + result.failed}\n` +
+        (result.failed > 0 ? `  ${chalk.red(`Failed lines:  ${result.failed}`)}\n` : "") +
         `  Changed lines: ${result.changedLines}\n` +
         `  Mean delta:    ${color(fmtAinDelta(result.meanDelta))} AIN (${color(label)})\n` +
         `  Tokens:        ${result.totalTokens}\n`,
     );
+
+    // AUDIT 2026-07-30: with nothing scored there is no verdict to give.
+    // Previously the mean collapsed to 0, labelDelta(0) returned "unchanged",
+    // and the command exited 0 — so a total engine outage printed the same
+    // summary as a clean run, and the fabricated result was written to
+    // history as though it were a measurement.
+    if (result.scored === 0) {
+      process.stderr.write(
+        chalk.red("\nNo line pair could be scored — the mean above is not a measurement.\n"),
+      );
+      process.exitCode = 1;
+      printDisclaimer();
+      return;
+    }
+
     appendHistory({
       command: "diff-lines",
       input: `${before}::${after}`,
