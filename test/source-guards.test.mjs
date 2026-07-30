@@ -128,3 +128,50 @@ test("guards stay quiet on legitimate nearby text", () => {
   assert.ok(!UNSUPPORTED_ACCURACY.test("100% of the quota"), "quota wording is fine");
   assert.ok(!UNSUPPORTED_ACCURACY.test("uses 20% less memory"), "unrelated percentage is fine");
 });
+
+/**
+ * The fatal-error path must not force an exit.
+ *
+ * AUDIT 2026-07-30: dieFormatted ended in `process.exit(1)` and did not exit —
+ * it aborted. Every fatal path here runs after a network call, fetch leaves a
+ * keep-alive socket open, and calling process.exit() while libuv is mid-close
+ * trips an assertion on Windows. The process printed
+ *
+ *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:76
+ *
+ * after the real message, and exited 127 rather than 1. Scripts checking for 1
+ * saw something else, and users saw an assertion that reads as "the tool is
+ * broken" rather than "your key is".
+ *
+ * Setting exitCode and letting the loop drain fixes it — measured, exit 1 in
+ * about a second. This guard keeps the forced call from coming back to the one
+ * function all 26 fatal call sites route through.
+ */
+test("dieFormatted sets an exit code rather than forcing an exit", async () => {
+  const src = await readFile(join(SRC, "index.ts"), "utf-8");
+  // Line-based on purpose. The first version searched for "\n}\n" with
+  // indexOf; the file uses CRLF, so it matched nothing and the guard failed on
+  // its own parsing rather than on the code it exists to check. A guard that
+  // cannot read the file is indistinguishable from one that found a problem.
+  const lines = src.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.includes("function dieFormatted"));
+  assert.ok(start !== -1, "dieFormatted not found — this guard would check nothing");
+  const end = lines.findIndex((l, i) => i > start && l === "}");
+  assert.ok(end !== -1, "could not find the end of dieFormatted");
+
+  const body = lines.slice(start, end);
+  const forced = body
+    .filter((l) => !l.trim().startsWith("*") && !l.trim().startsWith("//"))
+    .filter((l) => /process\.exit\s*\(/.test(l));
+
+  assert.deepEqual(
+    forced,
+    [],
+    `process.exit() inside dieFormatted aborts instead of exiting, because a ` +
+      `keep-alive socket is still open at that point:\n${forced.join("\n")}`,
+  );
+  assert.ok(
+    /process\.exitCode\s*=\s*1/.test(body.join("\n")),
+    "dieFormatted must still make the process fail — set process.exitCode = 1",
+  );
+});

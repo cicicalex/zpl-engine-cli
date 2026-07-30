@@ -100,7 +100,31 @@ function sanitiseErrorMessage(s: string): string {
     .replace(/gsk_[A-Za-z0-9_-]+/gi, "[REDACTED-GSK-KEY]");
 }
 
-function dieFormatted(err: unknown, verbose: boolean): never {
+/**
+ * Print a fatal error and make the process fail.
+ *
+ * AUDIT 2026-07-30: this used to end in `process.exit(1)` and did not exit at
+ * all — it aborted. Every fatal path here runs after a network call, and
+ * fetch leaves a keep-alive socket open; calling process.exit() while libuv is
+ * mid-close trips an assertion on Windows:
+ *
+ *   API key invalid. Run `zpl logout` then `zpl login`.
+ *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:76
+ *
+ * The observed exit code was 127, not 1. So any script or CI step checking for
+ * 1 saw something else, and the user got an alarming assertion printed after
+ * the real message — which reads as "the tool is broken" rather than "your key
+ * is".
+ *
+ * Setting exitCode instead lets the loop drain and the process exit properly.
+ * Measured on a three-line reproduction: exit(1) aborts with 127, exitCode
+ * leaves cleanly with 1 in about a second. Closing undici's dispatcher first
+ * also works but takes seven seconds and adds a dependency.
+ *
+ * No longer `never`. Safe: all 26 call sites are the last statement of a catch
+ * block, checked one by one — nothing runs after it anywhere.
+ */
+function dieFormatted(err: unknown, verbose: boolean): void {
   // Wrap each writer so secret-shaped strings inside any error message get
   // redacted before they reach the terminal / shell history / CI logs.
   const writeErr = (s: string) => process.stderr.write(sanitiseErrorMessage(s));
@@ -129,7 +153,9 @@ function dieFormatted(err: unknown, verbose: boolean): never {
   } else {
     writeErr(chalk.red("Unknown error.") + "\n");
   }
-  process.exit(1);
+  // Not process.exit(1) — see the note above. Letting the loop drain is what
+  // makes the exit code actually be 1 instead of an abort.
+  process.exitCode = 1;
 }
 
 const program = new Command();
