@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import Table from "cli-table3";
 import { requireConfig } from "../config.js";
-import { ApiClient } from "../api-client.js";
+import { ApiClient, ApiAuthError } from "../api-client.js";
 import { TABLE_STYLE } from "../table-style.js";
 
 export interface WhoamiOptions {
@@ -26,8 +26,24 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
   const cfg = requireConfig();
   const client = new ApiClient({ apiKey: cfg.auth.api_key, baseUrl: cfg.engine.base_url });
 
-  // Pull full account view from ZPL Main. Silent on failure.
-  const me = await client.me().catch(() => null);
+  // AUDIT 2026-07-30: this was `.catch(() => null)` with the comment "Silent
+  // on failure", and it swallowed the one failure that must not be silent.
+  //
+  // `me()` re-throws ApiAuthError deliberately so callers can tell a rejected
+  // key from an outage. Discarding it meant a dead key rendered as
+  // "ZPL Main /api/user/me unreachable — try again later" plus a fabricated
+  // `plan: free` — telling the user to wait for a server that is fine, and
+  // pointing them away from the only thing that fixes it.
+  //
+  // Same shape quota.ts uses: auth failures are fatal, everything else keeps
+  // the config-only rendering, which is genuinely useful during an outage.
+  let me;
+  try {
+    me = await client.me();
+  } catch (err) {
+    if (err instanceof ApiAuthError) throw err;
+    me = null;
+  }
 
   // Detect "from env" sentinel so JSON consumers can tell.
   const fromEnv = cfg.auth.created_at === new Date(0).toISOString();
