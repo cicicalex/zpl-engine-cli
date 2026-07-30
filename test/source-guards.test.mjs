@@ -175,3 +175,47 @@ test("dieFormatted sets an exit code rather than forcing an exit", async () => {
     "dieFormatted must still make the process fail — set process.exitCode = 1",
   );
 });
+
+/**
+ * The published surfaces must be clean too, not just src/.
+ *
+ * AUDIT 2026-07-31: the accuracy figures were scrubbed from src/ on
+ * 2026-07-30 because a 20-input test set cannot support them, and a guard was
+ * added to keep them out. That guard walks src/ only. package.json still read
+ *
+ *   "fixed inverted-bias regression (20% → 93% match-human rate ...)"
+ *
+ * in its `description` — the text npm renders on the package page. So the
+ * claim was removed from the place nobody reads and left in the place
+ * everybody does, and the guard written to prevent exactly this reported
+ * green the whole time.
+ *
+ * README.md is checked alongside for the same reason.
+ */
+test("no published surface quotes an accuracy or match percentage", async () => {
+  const files = ["package.json", "README.md"];
+  const offenders = [];
+  let scanned = 0;
+
+  for (const name of files) {
+    let text;
+    try {
+      text = await readFile(join(ROOT, name), "utf-8");
+    } catch {
+      continue;
+    }
+    scanned++;
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (UNSUPPORTED_ACCURACY.test(line)) {
+        offenders.push(`${name}:${i + 1}: ${line.trim().slice(0, 120)}`);
+      }
+    });
+  }
+
+  assert.ok(scanned > 0, "no published files were read — this guard would pass vacuously");
+  assert.deepEqual(
+    offenders,
+    [],
+    `an unsupported accuracy claim is on a page users actually see:\n${offenders.join("\n")}`,
+  );
+});
