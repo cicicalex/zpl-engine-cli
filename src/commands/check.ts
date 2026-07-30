@@ -5,7 +5,7 @@ import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { readTextFileOrDie } from "../file-utils.js";
 import { printDisclaimer } from "../disclaimer.js";
-import { ainPercent, fmtAin } from "../ain-scale.js";
+import { ainPercent, fmtAin, fmtPOutput, equilibriumOffset } from "../ain-scale.js";
 
 export interface CheckOptions {
   /** Output format. */
@@ -95,6 +95,14 @@ export async function runCheck(
     process.stdout.write(
       JSON.stringify(
         {
+          // AUDIT 2026-07-30: p_output is the engine's own measurement —
+          // output balance, 0.500 being equilibrium — and it arrived on every
+          // response without ever being printed. It leads here because it is
+          // what the reading means; `ain` follows as the derived summary.
+          // Added keys only, so `jq .ain` and every existing consumer keep
+          // working unchanged.
+          p_output: result.p_output,
+          equilibrium_offset: Number((result.p_output - 0.5).toFixed(6)),
           ain,
           // `ain_status` is the engine's balance-quality enum. `status` is
           // kept as a backwards-compatible alias for pre-1.2.2 consumers —
@@ -117,6 +125,9 @@ export async function runCheck(
 
   const color = statusColor(ain);
   process.stdout.write(`${chalk.bold(label)}  ${chalk.gray(`(${text.length} chars)`)}\n`);
+  process.stdout.write(
+    `  Balance  ${chalk.bold(fmtPOutput(result.p_output))}  ${chalk.gray(equilibriumOffset(result.p_output))}\n`,
+  );
   process.stdout.write(`  AIN      ${color.bold(fmtAin(ain) + "/100")}  ${color(result.ain_status)}\n`);
   process.stdout.write(`  Verdict  ${color(verdict)}\n`);
   process.stdout.write(
