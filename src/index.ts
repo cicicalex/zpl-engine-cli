@@ -33,6 +33,8 @@ import {
   ApiQuotaExhaustedError,
   ApiNetworkError,
   ApiCloudflareError,
+  ApiDimensionError,
+  ApiEngineInternalError,
 } from "./api-client.js";
 import { cmdLogin } from "./commands/login.js";
 import { cmdLogout } from "./commands/logout.js";
@@ -136,6 +138,14 @@ function dieFormatted(err: unknown, verbose: boolean): void {
     // The multi-line message already contains plan ladder + /pricing link.
     writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiQuotaError) {
+    writeErr(chalk.yellow(err.message) + "\n");
+  } else if (err instanceof ApiDimensionError) {
+    // Yellow, and no "Error:" prefix. Nothing is broken — the request asked
+    // for more than the plan allows, and the message says what to do about it.
+    writeErr(chalk.yellow(err.message) + "\n");
+  } else if (err instanceof ApiEngineInternalError) {
+    // Yellow too: this is the engine's problem, not the user's, and the old
+    // behaviour sent them to wipe working credentials over a server outage.
     writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiCloudflareError) {
     // Yellow not red: the engine is fine, this is upstream WAF noise.

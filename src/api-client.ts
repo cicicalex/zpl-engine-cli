@@ -36,6 +36,66 @@ export class ApiAuthError extends Error {
   }
 }
 
+/**
+ * The plan's dimension ceiling was exceeded.
+ *
+ * AUDIT 2026-07-31: the engine emits four distinct causes behind 403 — see the
+ * Display impl on AuthError in crates/zpl-api/src/auth.rs — and the CLI mapped
+ * three of them to ApiAuthError. Measured against a local mock returning the
+ * engine's own bodies:
+ *
+ *   API key not found or inactive        -> ApiAuthError   correct
+ *   Dimension 25 exceeds plan limit of 9 -> ApiAuthError   wrong
+ *   Token limit exceeded: 5123/5000      -> ApiNetworkError, after 4 attempts
+ *   Internal server error                -> ApiAuthError   wrong
+ *
+ * So a Free user asking for d=25 was told "API key invalid. Run zpl logout then
+ * zpl login." They log out, log back in, and it fails identically — their key
+ * was never the problem.
+ */
+export class ApiDimensionError extends Error {
+  public requested?: number;
+  public max?: number;
+  constructor(requested?: number, max?: number) {
+    // No upgrade suggestion when the ceiling is already the engine's own
+    // maximum. 100 is a hard constant in the engine, not a plan limit, and the
+    // top plan grants exactly that — telling someone to buy their way past it
+    // is advice no amount of money can follow. The same wrong sentence was
+    // removed from both SDKs earlier in this audit.
+    const detail =
+      requested !== undefined && max !== undefined
+        ? `Dimension ${requested} is above your plan's ceiling of ${max}.`
+        : `That dimension is above your plan's ceiling.`;
+    const advice =
+      max !== undefined && max >= 100
+        ? `100 is the engine's own maximum, so no plan goes higher — use a smaller dimension.`
+        : `Use a smaller dimension, or raise the ceiling at https://zeropointlogic.io/pricing`;
+    super(`${detail} ${advice}`);
+    this.name = "ApiDimensionError";
+    this.requested = requested;
+    this.max = max;
+  }
+}
+
+/**
+ * The engine reported an internal failure behind a 403.
+ *
+ * AuthError::Db renders as "Internal server error" and every call site maps it
+ * to FORBIDDEN, so a database outage arrives as a 403. Reporting that as a bad
+ * key sends the user to wipe working credentials over a server problem they
+ * cannot affect, and the credentials they replace will fail the same way.
+ */
+export class ApiEngineInternalError extends Error {
+  constructor(detail?: string) {
+    super(
+      `The engine reported an internal error${detail ? `: ${detail}` : ""}. ` +
+        `Your API key is fine — this is server-side. Try again shortly; if it persists, ` +
+        `check https://zeropointlogic.io/status`,
+    );
+    this.name = "ApiEngineInternalError";
+  }
+}
+
 export class ApiQuotaError extends Error {
   public resetAt?: string;
   constructor(resetAt?: string) {
@@ -216,6 +276,18 @@ export class ApiClient {
             const limit = m ? Number(m[2]) : undefined;
             throw new ApiQuotaExhaustedError(used, limit);
           }
+          // The engine's other two 403 causes, which used to land on
+          // ApiAuthError and send the user to re-authenticate over a plan
+          // ceiling or a database outage. Matched on the engine's own wording:
+          // "Dimension {d} exceeds plan limit of {max}" and "Internal server
+          // error" (AuthError::Db).
+          const dim = body.match(/dimension\s+(\d+)\s+exceeds\s+plan\s+limit\s+of\s+(\d+)/i);
+          if (dim) {
+            throw new ApiDimensionError(Number(dim[1]), Number(dim[2]));
+          }
+          if (/internal server error/i.test(body)) {
+            throw new ApiEngineInternalError();
+          }
           throw new ApiAuthError();
         }
         if (res.status === 401) throw new ApiAuthError();
@@ -250,9 +322,32 @@ export class ApiClient {
       } catch (err) {
         // Cloudflare errors are terminal — retrying just hammers the same WAF.
         // The user has to either wait or change UA/IP; neither helps in a loop.
+        //
+        // AUDIT 2026-07-31: ApiQuotaExhaustedError was missing from this list.
+        // It extends Error, not ApiQuotaError, so it fell through to `lastErr`,
+        // the loop retried it, and after maxRetries the throw below rewrote it
+        // as ApiNetworkError. Measured against a local mock returning the
+        // engine's own 403 body:
+        //
+        //   quota exhausted -> ApiNetworkError, 4 engine hits, 3.5s
+        //   message: "Network error: Monthly ZPL Engine quota exceeded (...)"
+        //
+        // So the careful quota handling added in the 12.05 audit could never
+        // reach the user - `err instanceof ApiQuotaExhaustedError` was
+        // unreachable outside this function - and a caller who is out of tokens
+        // hammered the engine four times for a condition that does not clear.
+        // The engine's rate limiter runs before key extraction, so those extra
+        // attempts count against the per-IP limit as well.
+        //
+        // Everything here is terminal for the same reason: no amount of
+        // retrying changes a plan ceiling, an exhausted quota, a bad key, or a
+        // server that has already decided.
         if (
           err instanceof ApiAuthError ||
           err instanceof ApiQuotaError ||
+          err instanceof ApiQuotaExhaustedError ||
+          err instanceof ApiDimensionError ||
+          err instanceof ApiEngineInternalError ||
           err instanceof ApiCloudflareError
         )
           throw err;
