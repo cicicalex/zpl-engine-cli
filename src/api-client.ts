@@ -344,7 +344,15 @@ export interface MeResponse {
     bonus_balance: number;
     total_available_this_cycle: number;
     percent_used: number;
-    source: "engine_log" | "user_table_fallback";
+    /**
+     * How the usage figure above was obtained.
+     *
+     * AUDIT 2026-07-31: `engine_user_not_found` was added server-side because
+     * the branch that produces it used to report `engine_log` with a zero,
+     * without having read anything — indistinguishable from a real zero. Only
+     * `engine_log` means the number was actually measured.
+     */
+    source: "engine_log" | "engine_user_not_found" | "user_table_fallback";
   };
   limits: {
     max_d: number;

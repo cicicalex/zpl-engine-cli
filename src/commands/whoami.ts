@@ -81,15 +81,42 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
     table.push(["Config created", cfg.auth.created_at]);
   }
   if (me?.tokens) {
-    const { remaining, used_this_month, monthly_quota, bonus_balance } = me.tokens;
-    table.push(
-      ["Tokens remaining", chalk.cyan(remaining.toLocaleString())],
-      [
+    const { remaining, used_this_month, monthly_quota, bonus_balance, source } = me.tokens;
+
+    // AUDIT 2026-07-31, measured: 200 tokens were spent on the engine and this
+    // table still printed "0 / 50.000.000 used". Three separate failures on the
+    // server produce a zero that is indistinguishable from a real one, and the
+    // API now says which happened. Printing the zero anyway, in cyan, next to a
+    // confident "remaining", would waste that.
+    //
+    // The limit is enforced by the engine on every request whatever this says,
+    // so a wrong zero is not a cosmetic problem: it is the only warning anyone
+    // gets before being refused.
+    const unknown = source === "engine_user_not_found" || source === "user_table_fallback";
+
+    table.push(["Tokens remaining", unknown ? chalk.yellow("unknown") : chalk.cyan(remaining.toLocaleString())]);
+
+    if (unknown) {
+      table.push([
+        "  ↳ monthly quota",
+        chalk.yellow(`? / ${monthly_quota.toLocaleString()} used`),
+      ]);
+      table.push([
+        "  ↳ why",
+        chalk.gray(
+          source === "engine_user_not_found"
+            ? "the account service could not match you engine-side — usage not read"
+            : "usage came from a cached copy, not the engine — may be stale",
+        ),
+      ]);
+    } else {
+      table.push([
         "  ↳ monthly quota",
         `${used_this_month.toLocaleString()} / ${monthly_quota.toLocaleString()} used`,
-      ],
-      ["  ↳ bonus balance", bonus_balance > 0 ? chalk.green(bonus_balance.toLocaleString()) : "0"],
-    );
+      ]);
+    }
+
+    table.push(["  ↳ bonus balance", bonus_balance > 0 ? chalk.green(bonus_balance.toLocaleString()) : "0"]);
   } else {
     table.push(["Tokens", chalk.gray("(ZPL Main /api/user/me unreachable — try again later)")]);
   }
