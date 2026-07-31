@@ -133,6 +133,23 @@ export async function runCheck(
           verdict,
           input_chars: text.length,
           sentiment: { positive, negative, neutral, sentences, bias },
+          // AUDIT 2026-07-31: `d` was computed by analyzeSentiment, sent to the
+          // engine, and then dropped before the JSON was written. Measured by
+          // running the command at five input sizes:
+          //
+          //    3 lines -> 1 token     16 lines -> 2 tokens
+          //    9 lines -> 1 token     25 lines -> 5 tokens     40 lines -> 5 tokens
+          //
+          // The cost changes with input size and nothing in the output said
+          // why. `--output json` exists for scripts, and a script could read
+          // what it was charged but not what it was charged FOR - so it could
+          // neither predict the next call nor check this one. The dimension is
+          // the only input to the price.
+          //
+          // It also explains the plateau at 5: the CLI clamps d to 5..15
+          // regardless of how long the text is, so 25 lines and 40 lines cost
+          // the same. That is defensible behaviour and was invisible.
+          d,
           tokens_used: result.tokens_used,
           source: label,
         },
