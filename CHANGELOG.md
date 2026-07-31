@@ -5,6 +5,32 @@ All notable changes to **zpl-engine-cli** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-07-31
+
+### Fixed
+- `zpl plans` had never once fetched live data. The request carried no
+  Authorization header and the engine's `/plans` requires one, so every call
+  fell back to the built-in list while the note underneath blamed an
+  unreachable engine. The engine was fine.
+- The built-in fallback list had drifted: Agent showed 15 API keys against 50
+  on the website. Now pinned to the website's plan table by test.
+- `zpl plans` honours `ZPL_ENGINE_URL` and the configured engine URL, which it
+  previously ignored — anyone pointed at a staging engine silently received
+  production's plan list. The URL passes the same validator the rest of the CLI
+  uses, since this request now carries the API key.
+- `zpl diff --lines` printed "Mean delta: +0.00 AIN (unchanged)" on stdout when
+  nothing could be scored. The exit code and stderr were already correct, but
+  stdout is what a script reads. A mean over zero samples is now reported as
+  absent.
+
+### Changed
+- Verdict wording follows the engine's bands. `zpl check` prints the engine's
+  status and its own verdict on consecutive lines, and across 60–79 they
+  disagreed — the engine said MODERATE_BIAS while the line below said
+  "moderately balanced".
+- `zpl about` publishes the engine's bands and no longer describes any reading
+  as "trustworthy", a claim the engine makes about nothing it returns.
+
 ---
 
 ## [Unreleased]
