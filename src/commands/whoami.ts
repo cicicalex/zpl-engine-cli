@@ -92,7 +92,13 @@ export async function cmdWhoami(opts: WhoamiOptions = {}): Promise<void> {
     // The limit is enforced by the engine on every request whatever this says,
     // so a wrong zero is not a cosmetic problem: it is the only warning anyone
     // gets before being refused.
-    const unknown = source === "engine_user_not_found" || source === "user_table_fallback";
+    // AUDIT 2026-07-31, tightened: this listed the two failure values. That
+    // trusts anything else by default, so a `source` added on the server later
+    // would be rendered as a measurement without anyone deciding it should be.
+    // Whitelisting the single value that means "read from the engine" fails the
+    // safe way instead - a new label reads as not-measured until someone says
+    // otherwise. `zpl quota` was written this way and the two disagreed.
+    const unknown = source !== "engine_log";
 
     table.push(["Tokens remaining", unknown ? chalk.yellow("unknown") : chalk.cyan(remaining.toLocaleString())]);
 

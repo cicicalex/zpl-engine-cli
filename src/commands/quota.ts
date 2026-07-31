@@ -79,20 +79,52 @@ export async function cmdQuota(opts: QuotaOptions = {}): Promise<void> {
   const percent = t.percent_used;
   const usageColor = percent >= 90 ? chalk.red : percent >= 70 ? chalk.yellow : chalk.green;
 
+  // AUDIT 2026-07-31: the JSON branch above already passes `source` through,
+  // and this table ignored it — so the command users are told to run before a
+  // batch printed a confident "Remaining: 5,000 tokens" in green even when the
+  // server had said it could not measure.
+  //
+  // Measured the day before: 200 tokens were spent on the engine and
+  // used_this_month stayed 0 across the call. Three separate server-side
+  // failures produce that zero and none is distinguishable from a genuinely
+  // idle account, which is why /api/user/me now reports how it obtained the
+  // figure. `zpl whoami` was fixed to read it; this command was not, and it is
+  // the one whose entire job is answering "how much have I got left".
+  //
+  // Only engine_log means the number was read. Anything else is a figure the
+  // server could not stand behind, and printing it in green is worse than
+  // printing nothing.
+  const unknown = t.source !== "engine_log";
+  const fmt = (n: number) => (unknown ? chalk.yellow("unknown") : `${n.toLocaleString()} tokens`);
+
   const table = new Table({
     head: [chalk.bold("Field"), chalk.bold("Value")],
     style: TABLE_STYLE,
   });
   table.push(
     ["Plan", chalk.bold(`${me.user.plan} (${me.user.plan_name})`)],
-    ["Used this month", `${t.used_this_month.toLocaleString()} tokens`],
+    ["Used this month", unknown ? chalk.yellow("unknown") : `${t.used_this_month.toLocaleString()} tokens`],
+    // The plan's allowance is a property of the plan, not a measurement, so it
+    // stays readable even when usage could not be read.
     ["Monthly quota", `${t.monthly_quota.toLocaleString()} tokens`],
     ["Bonus balance", t.bonus_balance > 0 ? chalk.green(`${t.bonus_balance.toLocaleString()} tokens`) : "0"],
-    ["Remaining", usageColor.bold(`${t.remaining.toLocaleString()} tokens`)],
-    ["Cycle total available", `${t.total_available_this_cycle.toLocaleString()} tokens`],
-    ["Used %", usageColor.bold(`${percent}%`)],
+    ["Remaining", unknown ? chalk.yellow("unknown") : usageColor.bold(`${t.remaining.toLocaleString()} tokens`)],
+    ["Cycle total available", fmt(t.total_available_this_cycle)],
+    ["Used %", unknown ? chalk.yellow("unknown") : usageColor.bold(`${percent}%`)],
   );
   process.stdout.write(table.toString() + "\n");
+
+  if (unknown) {
+    process.stdout.write(
+      "\n" +
+        chalk.yellow(
+          t.source === "engine_user_not_found"
+            ? "The account service could not match you engine-side, so your usage was not read.\n" +
+              "The plan limit above is real; the usage figures are not available.\n"
+            : "Usage came from a cached copy rather than the engine, so it may be stale.\n",
+        ),
+    );
+  }
 
   if (t.bonus_balance > 0) {
     process.stdout.write(
