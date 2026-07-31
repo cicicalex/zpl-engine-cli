@@ -115,10 +115,16 @@ function buildManifest(): AboutManifest {
         "`ain_status` enum, which has its own thresholds and is passed " +
         "through unmodified in the `ain_status` field.",
       bands: [
-        { score: ">= 80", meaning: "highly balanced, trustworthy" },
-        { score: "60 to <80", meaning: "moderately balanced" },
-        { score: "40 to <60", meaning: "noticeable bias" },
-        { score: "< 40", meaning: "heavily biased" },
+        // AUDIT 2026-07-31: these were this client's own bands, and "trustworthy"
+        // is a claim the engine never makes about any reading. 60-79 was
+        // described as "moderately balanced" where the engine reports
+        // MODERATE_BIAS. Replaced with the engine's own bands and names.
+        { score: ">= 96", meaning: "certified neutral" },
+        { score: "90 to <96", meaning: "highly neutral" },
+        { score: "80 to <90", meaning: "neutral" },
+        { score: "60 to <80", meaning: "moderate bias" },
+        { score: "40 to <60", meaning: "significant bias" },
+        { score: "< 40", meaning: "high bias" },
       ],
     },
     links: {

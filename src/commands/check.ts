@@ -21,11 +21,31 @@ export interface CheckResult {
   tokens: number;
 }
 
+/**
+ * The engine's own classification, in the words the other clients use.
+ *
+ * AUDIT 2026-07-31: this had its own bands - 80/60/40 - and printed directly
+ * under the engine's ain_status. Compared across the scale:
+ *
+ *   AIN 85  engine NEUTRAL           verdict "highly balanced"
+ *   AIN 75  engine MODERATE_BIAS     verdict "moderately balanced"
+ *   AIN 65  engine MODERATE_BIAS     verdict "moderately balanced"
+ *
+ * Two lines of output, one saying bias and the next saying balanced, about the
+ * same number. The whole 60-79 range was described as balanced by a client
+ * whose own header had just printed MODERATE_BIAS.
+ *
+ * Same defect found and fixed today in the MCP (three places) and in both
+ * SDKs, where the two languages had also drifted apart from each other. These
+ * are the engine's boundaries and the wording now shared by every client.
+ */
 function verdictFor(ain: number): string {
-  if (ain >= 80) return "highly balanced";
-  if (ain >= 60) return "moderately balanced";
-  if (ain >= 40) return "noticeable bias";
-  return "heavily biased";
+  if (ain >= 96) return "certified neutral";
+  if (ain >= 90) return "highly neutral";
+  if (ain >= 80) return "neutral";
+  if (ain >= 60) return "moderate bias";
+  if (ain >= 40) return "significant bias";
+  return "high bias";
 }
 
 function statusColor(ain: number): ChalkInstance {
