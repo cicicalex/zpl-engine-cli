@@ -88,9 +88,34 @@ export function validateEngineUrl(raw: string): string {
     throw new EngineUrlError("not a parseable URL", raw);
   }
 
-  if (url.protocol !== "https:") {
+  // AUDIT 2026-07-31: this check used to be unconditional, and it runs before
+  // the allowlist below — so ZPL_ENGINE_ALLOW_INSECURE_LOCAL could never allow
+  // anything insecure. localhostAllowed() only adds hostnames to the allowlist,
+  // and the allowlist is reached only by URLs that already passed as https, so
+  // the one thing the flag exists to permit was rejected two checks earlier.
+  //
+  // The variable was renamed in v1.1.1 specifically so the CLI and the MCP
+  // would share it. The MCP honours it:
+  //
+  //     if (u.protocol === "http:" && isLocal && ...ALLOW_INSECURE_LOCAL === "1") return;
+  //
+  // The alignment was done on the name and never on the behaviour, so the same
+  // documented flag worked in one client and was dead in the other. Anyone
+  // running a local engine - which serves http - could point the MCP at it and
+  // not the CLI, and the CLI's own error told them to use https, which a local
+  // engine does not speak.
+  //
+  // Verified by running the built CLI both ways before and after.
+  const isLocalHost = LOCALHOST_HOSTS.includes(url.hostname.toLowerCase());
+  const localHttpPermitted =
+    url.protocol === "http:" && isLocalHost && localhostAllowed();
+
+  if (url.protocol !== "https:" && !localHttpPermitted) {
     throw new EngineUrlError(
-      `scheme must be https, got "${url.protocol}". HTTP would expose the API key in plain text.`,
+      url.protocol === "http:" && isLocalHost
+        ? `scheme must be https, got "${url.protocol}". For a local engine set ` +
+          `ZPL_ENGINE_ALLOW_INSECURE_LOCAL=1 — the same variable the MCP uses.`
+        : `scheme must be https, got "${url.protocol}". HTTP would expose the API key in plain text.`,
       raw,
     );
   }
