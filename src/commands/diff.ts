@@ -31,6 +31,48 @@ function labelDelta(delta: number): { label: string; color: ChalkInstance } {
 
 const DEFAULT_MAX_LINES = 40;
 
+/** What runLineDiff reports back, and what the summary is rendered from. */
+export interface LineDiffResult {
+  totalTokens: number;
+  changedLines: number;
+  meanDelta: number;
+  scored: number;
+  failed: number;
+}
+
+/**
+ * Render the Summary block.
+ *
+ * AUDIT 2026-07-31: with nothing scored this printed
+ * "Mean delta: +0.00 AIN (unchanged)" on stdout. The exit code and the stderr
+ * warning were fixed on 2026-07-30, so the command already failed correctly —
+ * but the fabricated number stayed on stdout, and stdout is what a script
+ * greps. Measured against a closed port: exit 1, "Scored lines: 0 of 3", and
+ * "+0.00 AIN (unchanged)" printed two lines below it.
+ *
+ * A mean over zero samples is not zero, it is absent.
+ *
+ * Extracted from the command so this is a unit test rather than a regex over
+ * the source. Two guards of mine reported green on the defect they were
+ * written for tonight, both because they checked the shape of the code instead
+ * of what it produces.
+ */
+export function formatLineDiffSummary(result: LineDiffResult): string {
+  const { label, color } = labelDelta(result.meanDelta);
+  const meanRow =
+    result.scored === 0
+      ? `  Mean delta:    ${chalk.red("not measured")} (0 of ${result.failed} pairs scored)\n`
+      : `  Mean delta:    ${color(fmtAinDelta(result.meanDelta))} AIN (${color(label)})\n`;
+  return (
+    `\n${chalk.bold("Summary")}\n` +
+    `  Scored lines:  ${result.scored} of ${result.scored + result.failed}\n` +
+    (result.failed > 0 ? `  ${chalk.red(`Failed lines:  ${result.failed}`)}\n` : "") +
+    `  Changed lines: ${result.changedLines}\n` +
+    meanRow +
+    `  Tokens:        ${result.totalTokens}\n`
+  );
+}
+
 /**
  * Line-level diff mode (bug #11 fix).
  *
@@ -141,15 +183,8 @@ export async function cmdDiff(
       ? Math.max(2, Math.min(200, Number.parseInt(opts.maxLines, 10) || DEFAULT_MAX_LINES))
       : DEFAULT_MAX_LINES;
     const result = await runLineDiff(client, tBefore, tAfter, maxLines);
-    const { label, color } = labelDelta(result.meanDelta);
-    process.stdout.write(
-      `\n${chalk.bold("Summary")}\n` +
-        `  Scored lines:  ${result.scored} of ${result.scored + result.failed}\n` +
-        (result.failed > 0 ? `  ${chalk.red(`Failed lines:  ${result.failed}`)}\n` : "") +
-        `  Changed lines: ${result.changedLines}\n` +
-        `  Mean delta:    ${color(fmtAinDelta(result.meanDelta))} AIN (${color(label)})\n` +
-        `  Tokens:        ${result.totalTokens}\n`,
-    );
+    const { label } = labelDelta(result.meanDelta);
+    process.stdout.write(formatLineDiffSummary(result));
 
     // AUDIT 2026-07-30: with nothing scored there is no verdict to give.
     // Previously the mean collapsed to 0, labelDelta(0) returned "unchanged",
