@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] — 2026-07-31
 
+Includes the alignment pass against the numeric contract that was previously
+filed below as *Unreleased*. It was never released separately: `src/ain-scale.ts`
+does not exist at tag `v1.2.1`, so every item here ships for the first time in
+1.3.0. **`zpl pipe`'s text output changes in this release** — see *Changed*.
+
 ### Fixed
 - `zpl plans` had never once fetched live data. The request carried no
   Authorization header and the engine's `/plans` requires one, so every call
@@ -31,14 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `zpl about` publishes the engine's bands and no longer describes any reading
   as "trustworthy", a claim the engine makes about nothing it returns.
 
----
+### Changed — numeric contract alignment
 
-## [Unreleased]
-
-Alignment pass against the numeric contract. No behaviour change to auth,
-config, networking, or exit codes.
-
-### Changed
+No behaviour change to auth, config, networking, or exit codes.
 
 - **AIN precision is no longer thrown away.** Every command scored with
   `Math.round(ain * 100)`, collapsing the engine's 0.0–1.0 value to a whole
