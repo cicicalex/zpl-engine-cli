@@ -112,8 +112,26 @@ Two different fields are easy to confuse — they are not the same thing:
 
 | Field | What it means |
 |---|---|
-| `ain_status` | The engine's **balance-quality** enum, passed through unmodified. |
-| `verdict` | The **CLI's own** four-way band (`highly balanced` / `moderately balanced` / `noticeable bias` / `heavily biased`), computed from the percentage. Not an engine field. |
+| `ain_status` | The engine's **balance-quality** enum, passed through unmodified: `CERTIFIED_NEUTRAL`, `HIGHLY_NEUTRAL`, `NEUTRAL`, `MODERATE_BIAS`, `SIGNIFICANT_BIAS`, `HIGH_BIAS`. |
+| `verdict` | The same six bands in lower case, computed locally from the percentage. Not an engine field, but no longer a different opinion from one — see below. |
+
+`verdict` used to be a four-way band of the CLI's own invention (`highly
+balanced` / `moderately balanced` / `noticeable bias` / `heavily biased`) with
+its own thresholds. Across the whole 60–79 range it disagreed with the
+`ain_status` printed on the line above it: the engine said `MODERATE_BIAS`
+while the CLI called the same number "moderately balanced". It now uses the
+engine's boundaries and the engine's names:
+
+| AIN | `ain_status` | `verdict` |
+|---|---|---|
+| ≥ 96 | `CERTIFIED_NEUTRAL` | certified neutral |
+| ≥ 90 | `HIGHLY_NEUTRAL` | highly neutral |
+| ≥ 80 | `NEUTRAL` | neutral |
+| ≥ 60 | `MODERATE_BIAS` | moderate bias |
+| ≥ 40 | `SIGNIFICANT_BIAS` | significant bias |
+| < 40 | `HIGH_BIAS` | high bias |
+
+If your scripts matched on the old strings, they will not match any more.
 
 In `check --output json` and `pipe --output json` the key `status` is a
 backwards-compatible alias of `ain_status` and carries the same value. Prefer
