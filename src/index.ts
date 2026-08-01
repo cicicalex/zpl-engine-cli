@@ -35,6 +35,7 @@ import {
   ApiCloudflareError,
   ApiDimensionError,
   ApiEngineInternalError,
+  ApiUpgradeRequiredError,
 } from "./api-client.js";
 import { cmdLogin } from "./commands/login.js";
 import { cmdLogout } from "./commands/logout.js";
@@ -146,6 +147,12 @@ function dieFormatted(err: unknown, verbose: boolean): void {
   } else if (err instanceof ApiEngineInternalError) {
     // Yellow too: this is the engine's problem, not the user's, and the old
     // behaviour sent them to wipe working credentials over a server outage.
+    writeErr(chalk.yellow(err.message) + "\n");
+  } else if (err instanceof ApiUpgradeRequiredError) {
+    // Yellow, and no "Error:" prefix. Nothing is broken and nothing was
+    // billed — the engine declined to serve this build and sent back the
+    // command that fixes it. The multi-line message is that command plus the
+    // reason, so it is printed whole rather than collapsed to one line.
     writeErr(chalk.yellow(err.message) + "\n");
   } else if (err instanceof ApiCloudflareError) {
     // Yellow not red: the engine is fine, this is upstream WAF noise.

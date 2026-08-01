@@ -3,7 +3,7 @@
  * - Bearer auth from the stored config key.
  * - Retries 3x with exponential backoff on 5xx / network errors only.
  * - Never retries 4xx (auth failure must surface immediately).
- * - Translates 401/429/5xx into typed exceptions the command layer can format.
+ * - Translates 401/426/429/5xx into typed exceptions the command layer can format.
  * - Detects Cloudflare HTML interstitials (200 + text/html OR 4xx + HTML body)
  *   and surfaces ApiCloudflareError instead of crashing on res.json().
  */
@@ -29,7 +29,30 @@ export interface ComputeResponse {
   compute_ms: number;
 }
 
-export class ApiAuthError extends Error {
+/**
+ * Base for every error this client raises about the engine.
+ *
+ * AUDIT 2026-08-01: eight Api*Error classes each extended Error directly, and
+ * eight call sites listed the ones they cared about by hand. Adding a class
+ * meant remembering all eight lists, and `ApiUpgradeRequiredError` — added the
+ * same day for the engine's 426 — was missed in `zpl pipe`, so a CI run that
+ * hit the upgrade gate had the upgrade instructions wrapped in a generic
+ * "engine call failed" prefix. Same exit code, buried message.
+ *
+ * A shared base means a site that wants "any error from the engine" can say so
+ * once, and a new class is covered the moment it is declared. Sites that
+ * deliberately distinguish between classes still can — subclasses satisfy
+ * their own instanceof exactly as before, so nothing existing changes
+ * behaviour.
+ */
+export class ApiError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export class ApiAuthError extends ApiError {
   constructor() {
     super("API key invalid. Run `zpl logout` then `zpl login`.");
     this.name = "ApiAuthError";
@@ -53,7 +76,7 @@ export class ApiAuthError extends Error {
  * zpl login." They log out, log back in, and it fails identically — their key
  * was never the problem.
  */
-export class ApiDimensionError extends Error {
+export class ApiDimensionError extends ApiError {
   public requested?: number;
   public max?: number;
   constructor(requested?: number, max?: number) {
@@ -85,7 +108,7 @@ export class ApiDimensionError extends Error {
  * key sends the user to wipe working credentials over a server problem they
  * cannot affect, and the credentials they replace will fail the same way.
  */
-export class ApiEngineInternalError extends Error {
+export class ApiEngineInternalError extends ApiError {
   constructor(detail?: string) {
     super(
       `The engine reported an internal error${detail ? `: ${detail}` : ""}. ` +
@@ -96,7 +119,7 @@ export class ApiEngineInternalError extends Error {
   }
 }
 
-export class ApiQuotaError extends Error {
+export class ApiQuotaError extends ApiError {
   public resetAt?: string;
   constructor(resetAt?: string) {
     super(
@@ -120,7 +143,7 @@ export class ApiQuotaError extends Error {
  * Distinct from ApiQuotaError (which is per-minute rate limiting and
  * suggests a short retry).
  */
-export class ApiQuotaExhaustedError extends Error {
+export class ApiQuotaExhaustedError extends ApiError {
   public tokensUsed?: number;
   public tokensLimit?: number;
   constructor(tokensUsed?: number, tokensLimit?: number) {
@@ -148,7 +171,121 @@ export class ApiQuotaExhaustedError extends Error {
   }
 }
 
-export class ApiNetworkError extends Error {
+/**
+ * This CLI build is below the minimum version the engine will serve
+ * (HTTP 426 Upgrade Required, from the forced-upgrade gate in
+ * crates/zpl-api/src/main.rs `check_min_supported_version`).
+ *
+ * AUDIT 2026-08-01: 426 had no branch of its own. It fell through to the
+ * generic `!res.ok` arm, which throws a plain `Error`, and a plain `Error` is
+ * not in the terminal list in the catch below — so the loop retried a verdict
+ * that cannot change (4 requests, ~3.5s of backoff) and then rewrote the last
+ * one as ApiNetworkError. What the user actually saw was:
+ *
+ *   Network error: Engine error 426: {"error":"upgrade_required","code":426,...}
+ *
+ * which names neither the cause nor the fix, and blames the network for a
+ * decision the engine made deliberately. This is structurally the same defect
+ * as the ApiQuotaExhaustedError one fixed on 2026-07-31, in the same two
+ * places: a status the engine considers final, classified as transient.
+ *
+ * The engine sends the fix in the body — `upgrade_command`, `minimum_version`,
+ * `current_version`, `message` — and names this CLI as a client that knows how
+ * to consume it. It did, but only in one place: device-flow.ts reads that exact
+ * shape from ZPL Main's login endpoint. Nothing read it from the engine.
+ *
+ * Deliberately NOT auto-upgraded the way `zpl login` is. device-flow re-execs
+ * via npx because re-running a login is free and idempotent; re-execing an
+ * arbitrary command would re-send a compute the caller may not want billed a
+ * second time. Here we print the command and stop.
+ */
+export class ApiUpgradeRequiredError extends ApiError {
+  public upgradeCommand: string;
+  public minimumVersion?: string;
+  public currentVersion?: string;
+  constructor(
+    info: {
+      upgradeCommand?: string;
+      minimumVersion?: string;
+      currentVersion?: string;
+      serverMessage?: string;
+    } = {},
+  ) {
+    // Prefer the command the engine sent. It is chosen per client type there
+    // ("cli" -> npm i -g zpl-engine-cli@latest), so an operator can change the
+    // instruction without waiting for a CLI release. The fallback is the same
+    // string update-check.ts already prints, not a new invention.
+    const cmd = info.upgradeCommand?.trim() || "npm i -g zpl-engine-cli@latest";
+    // No invented numbers: when the engine did not send the versions, the
+    // sentence simply does not mention them.
+    const versions =
+      info.minimumVersion !== undefined
+        ? info.currentVersion !== undefined
+          ? ` — you are on v${info.currentVersion}, the engine requires v${info.minimumVersion} or newer`
+          : ` — the engine requires v${info.minimumVersion} or newer`
+        : "";
+    const headline =
+      info.serverMessage?.trim() ||
+      `This CLI is below the ZPL Engine's minimum supported version${versions}.`;
+    super(
+      [
+        headline,
+        ``,
+        `Upgrade, then run the command again:`,
+        `  ${cmd}`,
+        `  (or \`zpl update\`, which prints the command for the way you installed it)`,
+        ``,
+        // Both statements are read off the engine, not assumed: the gate
+        // returns the same 426 for every request from this version, and it
+        // runs after auth but before token deduction and before the math job.
+        `Retrying will not help — the engine refuses every request from this version.`,
+        `Nothing was charged: the version check runs before any tokens are deducted.`,
+      ].join("\n"),
+    );
+    this.name = "ApiUpgradeRequiredError";
+    this.upgradeCommand = cmd;
+    this.minimumVersion = info.minimumVersion;
+    this.currentVersion = info.currentVersion;
+  }
+}
+
+/**
+ * Pull the forced-upgrade metadata out of a 426 body.
+ *
+ * Tolerant on purpose: a 426 can also come from something in front of the
+ * engine (a proxy, a gateway) with a body that is not the engine's JSON at
+ * all. In that case every field comes back undefined and the error still says
+ * what a 426 means and what to do — it just has no server-supplied specifics
+ * to quote. Fields that are present but not strings are dropped rather than
+ * interpolated as "[object Object]".
+ */
+export function parseUpgradeRequiredBody(body: string): {
+  upgradeCommand?: string;
+  minimumVersion?: string;
+  currentVersion?: string;
+  serverMessage?: string;
+} {
+  let raw: unknown = null;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    raw = null;
+  }
+  const obj: Record<string, unknown> =
+    typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  // Bodies are attacker-adjacent input in principle and unbounded in practice;
+  // cap them the way the generic error arm below caps its slice.
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim() !== "" ? v.slice(0, 200) : undefined;
+  return {
+    upgradeCommand: str(obj.upgrade_command),
+    minimumVersion: str(obj.minimum_version),
+    currentVersion: str(obj.current_version),
+    serverMessage: str(obj.message),
+  };
+}
+
+export class ApiNetworkError extends ApiError {
   constructor(msg: string) {
     super(`Network error: ${msg}`);
     this.name = "ApiNetworkError";
@@ -163,7 +300,7 @@ export class ApiNetworkError extends Error {
  * The cf-ray ID is gold for support — it lets the Cloudflare dashboard
  * locate the exact request and tell you which rule fired.
  */
-export class ApiCloudflareError extends Error {
+export class ApiCloudflareError extends ApiError {
   public cfRay?: string;
   constructor(cfRay: string | undefined) {
     super(
@@ -322,6 +459,14 @@ export class ApiClient {
           throw new ApiAuthError();
         }
         if (res.status === 401) throw new ApiAuthError();
+        // 426 Upgrade Required — the engine's forced-upgrade gate. Handled
+        // here, above the generic `!res.ok` arm, because that arm throws a
+        // plain Error and the retry loop treats plain Errors as transient.
+        // See ApiUpgradeRequiredError for what that cost the user.
+        if (res.status === 426) {
+          const body = await res.text().catch(() => "");
+          throw new ApiUpgradeRequiredError(parseUpgradeRequiredBody(body));
+        }
         if (res.status === 429) {
           const reset = res.headers.get("x-ratelimit-reset") ?? res.headers.get("retry-after") ?? undefined;
           throw new ApiQuotaError(reset);
@@ -380,6 +525,13 @@ export class ApiClient {
           err instanceof ApiDimensionError ||
           err instanceof ApiEngineInternalError ||
           err instanceof ApiCloudflareError ||
+          // AUDIT 2026-08-01: 426 belongs here for the same reason as the rest.
+          // The gate compares the version this build sent in X-ZPL-Client-Version
+          // against the operator's floor; that comparison is identical on every
+          // attempt, so retrying is four guaranteed rejections and, because the
+          // engine's rate limiter runs before key extraction, four hits against
+          // the per-IP limit as well.
+          err instanceof ApiUpgradeRequiredError ||
           // AUDIT 2026-08-01: an aborted request is terminal. The engine charged
           // for the call before it started computing, so re-sending bills again
           // for work that may still be running. Same reasoning as the quota

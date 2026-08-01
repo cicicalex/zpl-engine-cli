@@ -29,13 +29,7 @@
  */
 import chalk from "chalk";
 import { requireConfig } from "../config.js";
-import {
-  ApiClient,
-  ApiAuthError,
-  ApiCloudflareError,
-  ApiNetworkError,
-  ApiQuotaError,
-} from "../api-client.js";
+import { ApiClient, ApiError } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { printDisclaimer } from "../disclaimer.js";
@@ -127,12 +121,18 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
   } catch (err) {
     // Engine errors get exit 3 so a CI script can distinguish "score below
     // threshold" (exit 1) from "couldn't even check" (exit 3).
-    if (
-      err instanceof ApiAuthError ||
-      err instanceof ApiCloudflareError ||
-      err instanceof ApiNetworkError ||
-      err instanceof ApiQuotaError
-    ) {
+    //
+    // AUDIT 2026-08-01: this listed four of the eight Api*Error classes by
+    // hand. The exit code was 3 either way, so nothing looked broken — but the
+    // fallback below prefixes the message with "zpl pipe: engine call failed:",
+    // and the classes missing from the list were the ones whose entire value is
+    // their message. ApiUpgradeRequiredError, added the same day for the
+    // engine's 426, carries the upgrade instructions; wrapping them in a
+    // generic prefix buries the one thing the user needs.
+    //
+    // Now matched on the shared base, so a class added tomorrow is covered
+    // without anyone remembering this line.
+    if (err instanceof ApiError) {
       process.stderr.write(chalk.red(err.message) + "\n");
       process.exit(3);
     }

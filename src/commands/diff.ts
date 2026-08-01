@@ -2,6 +2,7 @@ import chalk, { type ChalkInstance } from "chalk";
 import { requireConfig } from "../config.js";
 import {
   ApiClient, ApiAuthError, ApiCloudflareError, ApiQuotaExhaustedError,
+  ApiUpgradeRequiredError,
 } from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
@@ -141,10 +142,29 @@ async function runLineDiff(
       // The same command's whole-file path lets these reach dieFormatted and
       // fails properly, so one command reported opposite outcomes for the same
       // failure depending on a flag.
+      //
+      // AUDIT 2026-08-01: ApiUpgradeRequiredError added to the same list.
+      //
+      // Not for the fabricated-clean-run reason above — that one is already
+      // closed twice over. The `result.scored === 0` guard below exits 1, and
+      // formatLineDiffSummary prints "Mean delta: not measured" rather than a
+      // mean over nothing (pinned by test/diff-summary.test.mjs). A 426 would
+      // have failed loudly either way.
+      //
+      // It belongs here for the two reasons that are still open. The engine's
+      // forced-upgrade gate rejects every pair identically, so without the
+      // rethrow the loop keeps going: --max-lines is clamped to 200 and each
+      // pair issues two compute calls, so up to 400 requests are sent for a
+      // verdict fixed before the first one — against a rate limiter that, on
+      // the engine side, runs before key extraction. And the message that
+      // names the actual fix (the upgrade command) scrolls past once per line
+      // in stderr, while the run ends on "No line pair could be scored", which
+      // says nothing about upgrading.
       if (
         err instanceof ApiAuthError ||
         err instanceof ApiCloudflareError ||
-        err instanceof ApiQuotaExhaustedError
+        err instanceof ApiQuotaExhaustedError ||
+        err instanceof ApiUpgradeRequiredError
       ) {
         throw err;
       }

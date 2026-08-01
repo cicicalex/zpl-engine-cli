@@ -3,7 +3,12 @@ import clipboard from "clipboardy";
 import { watch as fsWatch, statSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { requireConfig } from "../config.js";
-import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
+import {
+  ApiClient,
+  ApiAuthError,
+  ApiCloudflareError,
+  ApiUpgradeRequiredError,
+} from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { ainPercent, fmtAin } from "../ain-scale.js";
@@ -63,6 +68,15 @@ async function scoreAndPrint(
         chalk.yellow(`\n${err.message}\n`) +
           chalk.gray(`Cloudflare blocked the request. Wait a moment and re-run.\n`),
       );
+      process.exit(1);
+    }
+    // AUDIT 2026-08-01: terminal for the same reason auth is. The engine
+    // refuses every request from this build until it is upgraded, so without
+    // this branch `zpl watch` printed the same rejection on every clipboard
+    // change or file save and kept calling — indefinitely, for a condition
+    // that only a re-install clears.
+    if (err instanceof ApiUpgradeRequiredError) {
+      process.stderr.write(chalk.yellow(`\n${err.message}\n`));
       process.exit(1);
     }
     process.stderr.write(chalk.red(`watch: ${(err as Error).message}\n`));

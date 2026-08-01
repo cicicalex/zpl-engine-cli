@@ -1,7 +1,12 @@
 import chalk from "chalk";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { requireConfig } from "../config.js";
-import { ApiClient, ApiAuthError, ApiCloudflareError } from "../api-client.js";
+import {
+  ApiClient,
+  ApiAuthError,
+  ApiCloudflareError,
+  ApiUpgradeRequiredError,
+} from "../api-client.js";
 import { analyzeSentiment } from "../sentiment.js";
 import { appendHistory } from "../db.js";
 import { printDisclaimer } from "../disclaimer.js";
@@ -167,7 +172,18 @@ async function runOneProbe(
         `  Pass ${i + 1}/${n}: AIN ${chalk.cyan(fmtAin(ain))}  tokens=${chalk.gray(String(res.tokens_used))}\n`,
       );
     } catch (err) {
-      if (err instanceof ApiAuthError || err instanceof ApiCloudflareError) throw err;
+      // AUDIT 2026-08-01: ApiUpgradeRequiredError joins the rethrow list. The
+      // engine's forced-upgrade gate answers every pass identically, so
+      // swallowing it here turned one rejection into `n` of them (MAX_N = 20,
+      // and up to MAX_PROMPTS_FROM_FILE = 100 prompts in batch mode) and then
+      // summarised the run as "fewer than 2 passes succeeded" instead of
+      // naming the one thing the user has to do.
+      if (
+        err instanceof ApiAuthError ||
+        err instanceof ApiCloudflareError ||
+        err instanceof ApiUpgradeRequiredError
+      )
+        throw err;
       process.stderr.write(chalk.red(`  Pass ${i + 1}/${n} failed: ${(err as Error).message}\n`));
     }
   }
@@ -270,7 +286,14 @@ export async function cmdConsistency(
         totalTokens += tokens.reduce((a, b) => a + b, 0);
         process.stdout.write("\n");
       } catch (err) {
-        if (err instanceof ApiAuthError || err instanceof ApiCloudflareError) throw err;
+        // Same list as runOneProbe above — the batch loop must not walk on to
+        // the next prompt for a condition that rejects every prompt.
+        if (
+          err instanceof ApiAuthError ||
+          err instanceof ApiCloudflareError ||
+          err instanceof ApiUpgradeRequiredError
+        )
+          throw err;
         process.stderr.write(chalk.red(`  "${label}" failed: ${(err as Error).message}\n`));
       }
     }
