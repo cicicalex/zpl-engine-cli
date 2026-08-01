@@ -198,6 +198,35 @@ export interface ApiClientOptions {
   verbose?: boolean;
 }
 
+/**
+ * How long to wait for each engine route, in milliseconds.
+ *
+ * AUDIT 2026-08-01: every deadline here used to sit BELOW the engine's own
+ * ceiling for the same route - compute 15s against 30s, sweep 30s against 60s.
+ * That ordering is the expensive way round. The engine deducts tokens before it
+ * starts computing and refunds only when its own timeout or blocking task
+ * fails; a client that gives up first leaves the request future to be dropped
+ * on disconnect, with the deduction committed and no refund path reached.
+ *
+ * Measured: a sweep at d=48 with samples=50000 takes about 52 seconds
+ * server-side - past the old 30s abort, inside the engine's 60s ceiling. Each
+ * abandoned attempt cost 19 x 150 = 2850 tokens and returned nothing.
+ *
+ * Waiting past the engine turns that into a 504 the engine itself issues, which
+ * does refund. Values are the engine's ceiling plus headroom for the network,
+ * not round numbers - if the engine's ceilings move these have to move with
+ * them, which is what the guard checks.
+ */
+const ENGINE_COMPUTE_CEILING_MS = 30_000;
+const ENGINE_SWEEP_CEILING_MS = 60_000;
+const NETWORK_HEADROOM_MS = 5_000;
+
+// This client sends every route through one request() path, so it uses the
+// slowest ceiling. The compute figure is kept for the guard, which checks both
+// against the engine rather than trusting either number here.
+export const DEADLINE_COMPUTE_MS = ENGINE_COMPUTE_CEILING_MS + NETWORK_HEADROOM_MS;
+const DEADLINE_SWEEP_MS = ENGINE_SWEEP_CEILING_MS + NETWORK_HEADROOM_MS;
+
 export class ApiClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -254,7 +283,9 @@ export class ApiClient {
         const res = await fetch(url, {
           ...init,
           headers: { ...this.headers(), ...(init.headers as Record<string, string> ?? {}) },
-          signal: AbortSignal.timeout(20_000),
+          // Sweep is the slowest route this client reaches, so the deadline is
+          // set from the engine's 60s ceiling. A shorter one abandoned paid work.
+          signal: AbortSignal.timeout(DEADLINE_SWEEP_MS),
         });
 
         // Auth errors are terminal — but 403 might also be a Cloudflare
@@ -348,7 +379,13 @@ export class ApiClient {
           err instanceof ApiQuotaExhaustedError ||
           err instanceof ApiDimensionError ||
           err instanceof ApiEngineInternalError ||
-          err instanceof ApiCloudflareError
+          err instanceof ApiCloudflareError ||
+          // AUDIT 2026-08-01: an aborted request is terminal. The engine charged
+          // for the call before it started computing, so re-sending bills again
+          // for work that may still be running. Same reasoning as the quota
+          // classes above, and the more expensive case of the two.
+          (err as Error)?.name === "TimeoutError" ||
+          (err as Error)?.name === "AbortError"
         )
           throw err;
         lastErr = err as Error;
