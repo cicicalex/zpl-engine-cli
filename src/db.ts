@@ -37,10 +37,30 @@ const MAX_ENTRIES = 500;
  *   - Anthropic / OpenAI sk-* tokens (any length)
  *   - Groq gsk_* tokens
  */
+//
+// AUDIT 2026-08-02: the comment above said this mirrors the MCP's set. It did
+// not, and the difference ran both ways. Both shipped sanitisers were run over
+// one corpus:
+//
+//   short Bearer token       CLI leaked it   MCP redacted it
+//   sk_live_<...>            CLI leaked it   MCP redacted it
+//   sk_test_<...>            CLI leaked it   MCP redacted it
+//   Bearer<TAB><token>       CLI redacted it MCP leaked it
+//
+// The length floor of 16 was the first: a short token is still a token. The
+// Stripe shapes were simply absent here.
+//
+// The lists are still two copies in two packages, because these ship
+// separately and neither can import the other. What keeps them together now is
+// a behavioural guard in each repo running the same corpus, rather than a
+// comment asserting they match.
 const SECRET_PATTERNS: RegExp[] = [
   /zpl_[us]_(?:[a-z]+_)?[a-f0-9]{20,}/gi,
-  /Bearer\s+[A-Za-z0-9._\-+/=]{16,}/gi,
+  // Quote excluded for the same reason the MCP excludes it: its twin runs
+  // over serialised JSON, and the two sets are meant to behave alike.
+  /Bearer\s+[^\s"]+/gi,
   /sk-[A-Za-z0-9_-]+/gi,
+  /sk_(?:live|test)_[A-Za-z0-9_-]+/gi,
   /gsk_[A-Za-z0-9_-]+/gi,
 ];
 
