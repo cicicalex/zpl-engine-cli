@@ -134,10 +134,30 @@ export async function cmdPipe(opts: PipeOptions = {}): Promise<void> {
     // without anyone remembering this line.
     if (err instanceof ApiError) {
       process.stderr.write(chalk.red(err.message) + "\n");
-      process.exit(3);
+    } else {
+      process.stderr.write(chalk.red(`zpl pipe: engine call failed: ${(err as Error).message}\n`));
     }
-    process.stderr.write(chalk.red(`zpl pipe: engine call failed: ${(err as Error).message}\n`));
-    process.exit(3);
+    // AUDIT 2026-08-02: these two lines were `process.exit(3)`, and this is
+    // the one place in this command that runs after a network call - exactly
+    // the condition src/index.ts documents as fatal on Windows. fetch leaves a
+    // keep-alive socket open and exit() while libuv is mid-close asserts:
+    //
+    //   API key invalid. Run `zpl logout` then `zpl login`.
+    //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:76
+    //
+    // Measured against the real engine, three runs out of three: the process
+    // aborted and the shell saw 127, never the 3 this file's own header
+    // promises. `zpl pipe` exists to be a CI gate, and its whole contract is
+    // that 1 means "below threshold" and 3 means "could not check" - so on the
+    // one path where that distinction matters most, a script got neither, plus
+    // an assertion printed after the real message that reads as "the tool is
+    // broken" rather than "your key is".
+    //
+    // The rule was already written down in src/index.ts and applied to
+    // dieFormatted and the main flow. This command was left out, and the
+    // success path below (`process.exitCode = 1`) even carries the same note.
+    process.exitCode = 3;
+    return;
   }
 
   // Percentage scale, decimals preserved — see src/ain-scale.ts.

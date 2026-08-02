@@ -5,6 +5,20 @@ All notable changes to **zpl-engine-cli** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `zpl pipe` aborted instead of exiting when the engine call failed. The
+  error path ended in `process.exit(3)`, which runs after a network call —
+  fetch leaves a keep-alive socket open, and exit() while libuv is mid-close
+  asserts on Windows. Measured against the real engine with an invalid key,
+  three runs of three: an assertion printed after the real message and an exit
+  code of 127, never the 3 this command documents. A CI step reading that
+  number to tell "score below threshold" from "could not check at all" got
+  neither. Re-measured after the fix: 3, three of three, no assertion. The
+  rule was already written down in `src/index.ts` and applied elsewhere; this
+  command was the one left out.
+
 ## [1.3.0] — 2026-07-31
 
 Includes the alignment pass against the numeric contract that was previously
