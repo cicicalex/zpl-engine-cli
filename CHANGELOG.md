@@ -27,6 +27,16 @@ does not exist at tag `v1.2.1`, so every item here ships for the first time in
   nothing could be scored. The exit code and stderr were already correct, but
   stdout is what a script reads. A mean over zero samples is now reported as
   absent.
+- **Three kinds of secret were printed to the terminal in full.** The redaction
+  that runs over error text before it is shown claimed in its own comment to
+  cover the same shapes as the MCP's. Running both shipped redactions over one
+  corpus showed the claim was false in both directions; the three that leaked
+  here were a short bearer token — a length floor treated it as not a token,
+  and a short token is still a token — and both Stripe key shapes, which were
+  simply absent from the list. The two lists remain separate copies, because
+  the packages ship independently and neither can import the other; what holds
+  them together now is a test that runs both over the same corpus and fails on
+  any shape one catches and the other does not.
 
 ### Changed
 - Verdict wording follows the engine's bands. `zpl check` prints the engine's
