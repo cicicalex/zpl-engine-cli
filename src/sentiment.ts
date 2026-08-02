@@ -52,6 +52,8 @@ const NEG_RE =
 const NEU_RE =
   /\b(both|however|but|though|although|while|nevertheless|nonetheless|tradeoff|tradeoffs|trade-off|caveat|caveats|mixed|reasonable|feasible|achievable|uncertain|depends|consider|consideration|perspective|alternative|alternatives|subjective|opinion|opinions|alternatively|balanced|equally|fair|weigh|review|review|reviews|reviewer|reviewers|scenario|scenarios|recommend|recommendation|recommendations|tradeoffsbalance|balance|totusi|desi|totodata|depinde|ambele|echilibrat|cependant|toutefois|malgre|equilibre|jedoch|allerdings|dennoch|ausgewogen|sin embargo|no obstante|equilibrado|tuttavia|comunque|equilibrato)\b/giu;
 
+import { dimensionForSentences } from "./dimension.js";
+
 export interface SentimentResult {
   positive: number;
   negative: number;
@@ -150,9 +152,11 @@ export function analyzeSentiment(text: string): SentimentResult {
 
   const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
 
-  // Matrix dimension scales with sentence count. Engine accepts 3..100;
-  // we keep a tight 5..15 band for typical CLI inputs (≤ 30 sentences).
-  const d = clamp(Math.floor(sentences.length / 2), 5, 15);
+  // Matrix dimension scales with sentence count. Engine accepts 3..100; we
+  // keep a tight band for typical CLI inputs. The band and the mapping live in
+  // dimension.ts because the refusal message has to quote them back to the
+  // customer, and a second copy of a rule is a copy that goes stale.
+  const d = dimensionForSentences(sentences.length);
 
   return {
     positive,

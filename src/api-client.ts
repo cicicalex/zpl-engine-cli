@@ -9,6 +9,7 @@
  */
 
 import { USER_AGENT, readPkgVersion } from "./user-agent.js";
+import { maxSentencesForDimension } from "./dimension.js";
 
 export interface ComputeRequest {
   d: number;
@@ -80,19 +81,35 @@ export class ApiDimensionError extends ApiError {
   public requested?: number;
   public max?: number;
   constructor(requested?: number, max?: number) {
+    const detail =
+      requested !== undefined && max !== undefined
+        ? `Dimension ${requested} is above your plan's ceiling of ${max}.`
+        : `That dimension is above your plan's ceiling.`;
+    // AUDIT 2026-08-02: the advice used to be "use a smaller dimension", and
+    // nothing in this tool lets anyone choose one. Every command that reaches
+    // the engine derives the dimension from the text it was given, so the
+    // reader was sent looking for an option that does not exist, and nothing
+    // connected the refusal to the input they had actually typed.
+    //
+    // Measured end to end against a real engine on the free plan: forty
+    // sentences refused at dimension 15 against a ceiling of 9, six sentences
+    // fine. The lever is the length of the input, so that is what this says —
+    // with the real number, computed from the same mapping the analyser uses
+    // rather than restated here.
+    const fits = max !== undefined ? maxSentencesForDimension(max) : null;
+    const shorten =
+      fits !== null
+        ? `This tool sets the dimension from how long your input is; about ${fits} sentences or fewer stays within your plan.`
+        : `Send a shorter input — this tool sets the dimension from how long it is.`;
     // No upgrade suggestion when the ceiling is already the engine's own
     // maximum. 100 is a hard constant in the engine, not a plan limit, and the
     // top plan grants exactly that — telling someone to buy their way past it
     // is advice no amount of money can follow. The same wrong sentence was
     // removed from both SDKs earlier in this audit.
-    const detail =
-      requested !== undefined && max !== undefined
-        ? `Dimension ${requested} is above your plan's ceiling of ${max}.`
-        : `That dimension is above your plan's ceiling.`;
     const advice =
       max !== undefined && max >= 100
-        ? `100 is the engine's own maximum, so no plan goes higher — use a smaller dimension.`
-        : `Use a smaller dimension, or raise the ceiling at https://zeropointlogic.io/pricing`;
+        ? `100 is the engine's own maximum, so no plan goes higher. ${shorten}`
+        : `${shorten} Or raise the ceiling at https://zeropointlogic.io/pricing`;
     super(`${detail} ${advice}`);
     this.name = "ApiDimensionError";
     this.requested = requested;

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- A dimension refusal told the customer to "use a smaller dimension". No
+  command in this tool takes one — all six that reach the engine derive it
+  from the text they were given — so the reader was sent looking for an option
+  that does not exist, and nothing connected the refusal to the input they had
+  typed. Measured end to end against a real engine on the free plan: forty
+  sentences refused at dimension 15 against a ceiling of 9, six sentences
+  fine. The message now names the real lever and the real number — "about 19
+  sentences or fewer stays within your plan" for that ceiling — and that
+  boundary was measured too: 19 sentences pass, 20 are refused. The mapping
+  moved to `src/dimension.ts` so the analyser and the message read one copy of
+  it rather than two.
 - `zpl pipe` aborted instead of exiting when the engine call failed. The
   error path ended in `process.exit(3)`, which runs after a network call —
   fetch leaves a keep-alive socket open, and exit() while libuv is mid-close
