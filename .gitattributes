@@ -1,0 +1,25 @@
+# Line endings are part of the contract here, not a preference.
+#
+# AUDIT 2026-08-02. Without this file, `core.autocrlf=true` — the default on a
+# Windows install — rewrites every text file to CRLF on checkout. The test
+# suites read the repo's own files and match on `\n`, so on a fresh Windows
+# clone tests fail that pass everywhere else. Measured on this repo: a branch
+# switch rewrote README.md to 662 CRLF endings and zero LF, and two README
+# tests went from passing to failing without a single character of content
+# changing.
+#
+# `text=auto eol=lf` normalises in the index AND checks out LF on every
+# platform, so what a contributor's editor sees is what the tests read.
+* text=auto eol=lf
+
+# Genuinely binary: never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
