@@ -27,9 +27,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readSibling, whySkipped } from "./sibling-repo.mjs";
 import { validateEngineUrl, EngineUrlError } from "../dist/engine-url-validate.js";
 
-const MCP_URL_TS = "C:/Proiecte/zpl-clients/zpl-engine-mcp/src/engine-url.ts";
+// AUDIT 2026-08-02: an absolute path on one machine, and the read below
+// swallowed a missing file into a silent pass. Resolved relative to this repo
+// now, overridable by environment, and absence is reported as a skip.
+const MCP_URL_TS = ["zpl-engine-mcp", "src", "engine-url.ts"];
 
 /** Run fn with the flag set or cleared, then restore. */
 function withFlag(on, fn) {
@@ -106,14 +110,13 @@ test("https is unaffected by the flag, in both directions", () => {
   }
 });
 
-test("the MCP still honours the same variable, so the two have not diverged again", async () => {
+test("the MCP still honours the same variable, so the two have not diverged again", async (t) => {
   // The point of the rename was one variable across both clients. Checking the
   // CLI alone would let the MCP drop it and call that fine.
-  let mcp;
-  try {
-    mcp = await readFile(MCP_URL_TS, "utf-8");
-  } catch {
-    return; // MCP repo not checked out beside this one
+  const mcp = await readSibling("clients", ...MCP_URL_TS);
+  if (mcp === null) {
+    t.skip(whySkipped("clients", ...MCP_URL_TS));
+    return;
   }
 
   // Strings and comments removed first. The MCP's rejection branch names the
